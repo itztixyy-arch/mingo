@@ -1,0 +1,82 @@
+#!/bin/sh
+# mingo-save [--full]
+# Saves everything changed since the last save as mingo/changes/changes-N.mingo and sets
+# mingo/current-version.txt to N. Changes are read from the overlay change layer
+# (/run/rw/upper), so a save only looks at changed files. When there are many saves or they
+# use a lot of space, the save is written as one full snapshot and older files are removed.
+# Runs at shutdown/reboot, every 3 minutes, and on demand.
+MP=/mnt/mingo
+D=$MP/mingo
+U=/run/rw/upper
+# never saved: caches, temp files, session junk
+EXCL='^\./(root/\.cache|var/cache|var/tmp|tmp|root/\.Xauthority|root/\.xsession-errors|\.mingo-)'
+
+{ [ -f /run/mingo.dev ] && [ -d $U ] && [ -d $D ]; } || { echo "mingo: no Mingo drive, nothing saved" >&2; exit 1; }
+
+# one save at a time (periodic save vs shutdown save)
+i=0
+until mkdir /run/mingo.lock 2>/dev/null; do
+  i=$((i + 1)); [ $i -gt 60 ] && exit 1; sleep 1
+done
+trap 'rmdir /run/mingo.lock' EXIT
+
+num() { v=$( { tr -d ' \r\n' < "$1"; } 2>/dev/null ); case $v in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac; }
+N=$(num $D/current-version.txt)
+F=$(num $D/full-version.txt)
+
+full=0
+[ "$1" = --full ] && full=1
+if [ $full = 0 ] && [ "$N" -gt 0 ]; then
+  first=$F; [ "$first" -lt 1 ] && first=1
+  kb=$(du -sk $D/changes 2>/dev/null | cut -f1)
+  { [ $((N - first + 1)) -ge 25 ] || [ "${kb:-0}" -ge 131072 ]; } && full=1
+fi
+
+cd $U || exit 1
+touch /run/mingo.mark.next
+find . | sort > /run/mingo.now
+if [ $full = 1 ]; then
+  find . ! -type d ! -type c | grep -Ev "$EXCL" > /run/mingo.new
+  find . -type c | sed 's|^\.||' > /run/mingo.del          # whiteouts = deleted system files
+else
+  find . -cnewer /run/mingo.mark ! -type d ! -type c | grep -Ev "$EXCL" > /run/mingo.new
+  { find . -type c -cnewer /run/mingo.mark; comm -23 /run/mingo.manifest /run/mingo.now; } \
+    | sed 's|^\.||' | grep -v '^/\.mingo-' | sort -u > /run/mingo.del
+  if [ ! -s /run/mingo.new ] && [ ! -s /run/mingo.del ]; then
+    echo "mingo: no changes to save"
+    exit 0
+  fi
+fi
+
+N=$((N + 1))
+mount -o remount,rw $MP || { echo "mingo: cannot write to the USB drive" >&2; exit 1; }
+mkdir -p $D/changes
+cd / || exit 1
+if [ -s /run/mingo.del ]; then
+  cp /run/mingo.del /.mingo-deleted
+  echo ./.mingo-deleted >> /run/mingo.new
+fi
+T=$D/changes/changes-$N.tmp
+if tar -czf "$T" -T /run/mingo.new 2>/dev/null; then
+  mv "$T" $D/changes/changes-$N.mingo
+  echo $N > $D/current-version.txt.tmp && mv $D/current-version.txt.tmp $D/current-version.txt
+  if [ $full = 1 ]; then
+    echo $N > $D/full-version.txt.tmp && mv $D/full-version.txt.tmp $D/full-version.txt
+    for f in $D/changes/changes-*.mingo; do
+      k=${f##*/changes-}; k=${k%.mingo}
+      case $k in ''|*[!0-9]*) continue ;; esac
+      [ "$k" -lt $N ] && rm -f "$f"
+    done
+    echo "mingo: saved full snapshot changes-$N.mingo (version $N)"
+  else
+    echo "mingo: saved changes-$N.mingo (version $N)"
+  fi
+  mv /run/mingo.mark.next /run/mingo.mark
+  cp /run/mingo.now /run/mingo.manifest
+else
+  rm -f "$T"
+  echo "mingo: save FAILED (is the USB drive full?)" >&2
+fi
+rm -f /.mingo-deleted
+sync
+mount -o remount,ro $MP

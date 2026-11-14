@@ -1,0 +1,6 @@
+::sysinit:/etc/init.d/rcS
+tty1::respawn:/sbin/getty -n -l /usr/bin/mingo-sh 0 tty1
+tty2::respawn:/sbin/getty -n -l /usr/bin/mingo-sh 0 tty2
+tty3::respawn:/sbin/getty -n -l /usr/bin/mingo-sh 0 tty3
+::ctrlaltdel:/sbin/reboot
+::shutdown:/etc/init.d/rcK

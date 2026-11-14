@@ -1,0 +1,54 @@
+# Builds Mingo and publishes a GitHub release. Installed Mingo systems update from the
+# latest release (mingo-update). To release: bump VERSION, commit, then
+#   git tag v$(cat VERSION) && git push origin main --tags
+name: Build and release Mingo
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches VERSION
+        run: |
+          v=$(tr -dc '0-9A-Za-z.-' < VERSION)
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$v" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match VERSION $v"; exit 1
+          fi
+
+      - name: Build image
+        run: sudo MINGO_REPO="$GITHUB_REPOSITORY" bash build.sh
+
+      - name: Compress flashable image
+        run: |
+          sudo xz -T0 -6 -k out/mingo.img
+          sudo mv out/mingo.img.xz out/release/
+          cd out/release && sudo sh -c 'sha256sum vmlinuz initramfs.gz system.sfs mingo.img.xz > SHA256SUMS'
+          ls -lh
+
+      - name: Upload build (manual runs)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mingo-${{ env.VERSION }}
+          path: out/release/
+          retention-days: 7
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/release/* \
+            --title "Mingo $VERSION" \
+            --notes "Flash \`mingo.img.xz\` with Rufus or balenaEtcher (2 GB+ USB stick), or run \`mingo update\` on an existing Mingo stick. The other files are used by the updater."

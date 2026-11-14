@@ -1,0 +1,39 @@
+#!/bin/sh
+# Replay saved changes onto the live system: from the last full snapshot (full-version.txt)
+# up to current-version.txt. The initramfs has already mounted the drive at /mnt/mingo.
+MP=/mnt/mingo
+D=$MP/mingo
+U=/run/rw/upper
+
+if [ ! -f $D/system.sfs ] || [ ! -d $U ]; then
+  echo "mingo: Mingo drive not mounted, changes will NOT be saved"
+  rm -f /run/mingo.dev
+  exit 0
+fi
+[ -s /run/mingo.dev ] || awk -v m=$MP '$2 == m { print $1 }' /proc/mounts > /run/mingo.dev
+
+num() { v=$( { tr -d ' \r\n' < "$1"; } 2>/dev/null ); case $v in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac; }
+N=$(num $D/current-version.txt)
+F=$(num $D/full-version.txt)
+{ [ "$F" -lt 1 ] || [ "$F" -gt "$N" ]; } && F=1
+
+n=$F
+while [ "$n" -le "$N" ]; do
+  f=$D/changes/changes-$n.mingo
+  if [ -f "$f" ]; then
+    tar -xzf "$f" -C / 2>/dev/null || echo "mingo: changes-$n.mingo is damaged, partly skipped"
+    if [ -f /.mingo-deleted ]; then
+      while IFS= read -r p; do
+        case $p in ''|/|/mnt|/mnt/*|/run|/run/*|/proc*|/sys*|/dev*) ;; *) rm -rf "$p" ;; esac
+      done < /.mingo-deleted
+      rm -f /.mingo-deleted
+    fi
+  else
+    echo "mingo: missing changes-$n.mingo"
+  fi
+  n=$((n + 1))
+done
+
+touch /run/mingo.mark
+(cd $U && find . | sort) > /run/mingo.manifest
+echo "mingo: version $N loaded from $(cat /run/mingo.dev)"

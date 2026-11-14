@@ -1,0 +1,37 @@
+#!/bin/sh
+# mingo: system helper
+D=/mnt/mingo/mingo
+case "$1" in
+  version)
+    echo "Mingo $(cat /etc/mingo-release 2>/dev/null)"
+    [ -f $D/current-version.txt ] && echo "save version: $(cat $D/current-version.txt)" ;;
+  save) shift; exec /usr/bin/mingo-save "$@" ;;
+  update) shift; exec /usr/bin/mingo-update "$@" ;;
+  changes) ls -lh $D/changes 2>/dev/null || echo "no Mingo drive" ;;
+  info) exec fastfetch ;;
+  desktop) exec /usr/bin/desktop ;;
+  settings) exec /usr/bin/mingo-settings ;;
+  net) exec /usr/bin/mingo-net ;;
+  autodesktop)
+    case "$2" in
+      on)  touch /etc/mingo-autodesktop; echo "autodesktop: on (desktop starts at boot)" ;;
+      off) rm -f /etc/mingo-autodesktop; echo "autodesktop: off (boot to terminal)" ;;
+      *)   if [ -e /etc/mingo-autodesktop ]; then echo on; else echo off; fi ;;
+    esac ;;
+  help|"")
+    cat <<'EOF'
+mingo version              OS and save version
+mingo save [--full]        save changes to the USB drive now (--full: one compact snapshot)
+mingo update               update Mingo from GitHub (installs at next restart)
+mingo changes              list saved changes-N.mingo files
+mingo info                 system info
+mingo net                  restart networking (DHCP)
+mingo desktop              start the desktop (also: desktop)
+mingo settings             settings menu (desktop only)
+mingo autodesktop on|off   start the desktop automatically at boot
+tsize [%]                  terminal window size in the desktop
+reboot | shutdown | poweroff
+EOF
+    ;;
+  *) echo "mingo: unknown command '$1' (try: mingo help)" >&2; exit 1 ;;
+esac

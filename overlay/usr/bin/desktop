@@ -1,0 +1,12 @@
+#!/bin/sh
+# Start the Mingo desktop (Xorg + Openbox).
+command -v startx >/dev/null 2>&1 || { echo "desktop: Xorg is not installed in this image" >&2; exit 1; }
+export XDG_RUNTIME_DIR=/run/user/0
+mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+cd "$HOME" || true
+vt=$(tty 2>/dev/null); vt=${vt#/dev/tty}
+case $vt in ''|*[!0-9]*) vt=1 ;; esac
+startx -- -nolisten tcp vt"$vt" >/run/desktop.log 2>&1
+rc=$?
+[ $rc -ne 0 ] && echo "desktop: exited with error $rc (log: /run/desktop.log)" >&2
+exit $rc

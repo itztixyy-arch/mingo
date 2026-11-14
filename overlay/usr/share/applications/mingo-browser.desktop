@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Web Browser
+Comment=Browse the web (Firefox)
+Exec=firefox-esr
+Icon=firefox
+Terminal=false

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+<menu id="root-menu" label="Mingo">
+  <item label="Terminal"><action name="Execute"><command>mingo-term</command></action></item>
+  <item label="Files"><action name="Execute"><command>pcmanfm /root</command></action></item>
+  <item label="Web Browser"><action name="Execute"><command>firefox-esr</command></action></item>
+  <item label="Text Editor"><action name="Execute"><command>mousepad</command></action></item>
+  <item label="Run..."><action name="Execute"><command>mingo-run</command></action></item>
+  <menu id="tools-menu" label="Tools">
+    <item label="System Monitor (htop)"><action name="Execute"><command>mingo-term -e htop</command></action></item>
+    <item label="Terminal File Manager (mc)"><action name="Execute"><command>mingo-term -e mc</command></action></item>
+    <item label="System Info"><action name="Execute"><command>mingo-term -e "mingo-hold fastfetch"</command></action></item>
+    <item label="Restart Network"><action name="Execute"><command>mingo-term -e "mingo-hold mingo net"</command></action></item>
+    <item label="Screenshot (Print key)"><action name="Execute"><command>mingo-shot</command></action></item>
+  </menu>
+  <separator/>
+  <menu id="client-list-menu"/>
+  <separator/>
+  <item label="Settings"><action name="Execute"><command>mingo-settings</command></action></item>
+  <item label="Save Changes Now"><action name="Execute"><command>mingo-term -e "mingo-hold mingo-save"</command></action></item>
+  <item label="Power..."><action name="Execute"><command>mingo-power</command></action></item>
+</menu>
+</openbox_menu>

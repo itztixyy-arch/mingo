@@ -1,0 +1,4 @@
+#!/bin/sh
+# Screenshot of the whole screen into ~/Pictures
+mkdir -p "$HOME/Pictures"
+scrot "$HOME/Pictures/screenshot-%Y-%m-%d-%H%M%S.png"

@@ -1,0 +1,9 @@
+#!/bin/sh
+cd /root
+# tty1 goes straight to the desktop at boot: skip the text banner there
+if [ "$(tty 2>/dev/null)" = /dev/tty1 ] && [ -e /etc/mingo-autodesktop ] && [ ! -e /run/mingo.desktop-started ]; then
+  printf '\033[2J\033[H'
+else
+  cat /etc/motd
+fi
+if [ -x /bin/bash ]; then exec /bin/bash -l; else exec /bin/sh -l; fi

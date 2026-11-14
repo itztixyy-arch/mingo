@@ -1,0 +1,9 @@
+#!/bin/sh
+# Power menu (dock power icon / Super+Esc)
+c=$(printf 'Shut down\nReboot\nSave changes\nExit desktop\n' | dmenu -i -l 4 -p 'Power' -fn 'DejaVu Sans:size=12' -nb '#0e1822' -nf '#d8e2ec' -sb '#3b6ea5' -sf '#ffffff')
+case "$c" in
+  "Shut down") shutdown ;;
+  Reboot) reboot ;;
+  "Save changes") mingo-term -e "mingo-hold mingo-save" ;;
+  "Exit desktop") openbox --exit ;;
+esac

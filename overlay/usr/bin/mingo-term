@@ -1,0 +1,17 @@
+#!/bin/sh
+# mingo-term [-e "command"]  - open a terminal at the size set with tsize (default 40%).
+p=$(cat "$HOME/.config/mingo/tsize" 2>/dev/null)
+case $p in ''|*[!0-9]*) p=40 ;; esac
+dims=$(xdpyinfo 2>/dev/null | awk '/dimensions:/{split($2,a,"x"); print a[1], a[2]}')
+W=${dims% *}; H=${dims#* }
+case "$W$H" in ''|*[!0-9]*) W=1280; H=800 ;; esac
+c=$((W * p / 100 / 9)); r=$((H * p / 100 / 19))
+[ $c -lt 40 ] && c=40; [ $r -lt 10 ] && r=10
+cmd=
+[ "$1" = -e ] && cmd=$2
+if command -v lxterminal >/dev/null 2>&1; then
+  if [ -n "$cmd" ]; then exec lxterminal --geometry=${c}x${r} --command="$cmd"; fi
+  exec lxterminal --geometry=${c}x${r}
+fi
+if [ -n "$cmd" ]; then exec xterm -geometry ${c}x${r} -e sh -c "$cmd"; fi
+exec xterm -geometry ${c}x${r}

@@ -1,0 +1,7 @@
+#!/bin/sh
+# shutdown [-r | -h | -P | -H] [now]   (time argument is ignored: always immediate)
+case "$1" in
+  -r) exec /sbin/reboot ;;
+  ""|now|-h|-P|-H|-n) exec /sbin/poweroff ;;
+  *) echo "usage: shutdown [-r|-h] [now]" >&2; exit 1 ;;
+esac

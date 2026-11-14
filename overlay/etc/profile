@@ -1,0 +1,14 @@
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/root
+export LANG=C.UTF-8
+export EDITOR=nano PAGER=less LESS=-R
+[ -x /bin/bash ] && export SHELL=/bin/bash
+[ -n "$BASH_VERSION" ] && [ -r /etc/bash/bashrc ] && . /etc/bash/bashrc
+
+# start the desktop on tty1 at boot (mingo autodesktop on|off)
+if [ "$(tty 2>/dev/null)" = /dev/tty1 ] && [ -e /etc/mingo-autodesktop ] && [ -z "$DISPLAY" ] && [ ! -e /run/mingo.desktop-started ]; then
+  touch /run/mingo.desktop-started
+  desktop
+  clear
+  echo "Desktop closed. Type 'desktop' to start it again."
+fi

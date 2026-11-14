@@ -1,0 +1,86 @@
+#!/bin/sh
+# Mingo early boot (tiny initramfs). Finds the Mingo USB drive, mounts the compressed
+# system (mingo/system.sfs) under a RAM overlay, then hands over to the real system.
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mount -t tmpfs -o mode=755 tmpfs /run
+echo 1 > /proc/sys/kernel/printk
+
+param() { for a in $(cat /proc/cmdline); do case $a in "$1"=*) echo "${a#*=}"; return ;; "$1") echo 1; return ;; esac; done; }
+
+SPLASH=
+if [ -z "$(param nosplash)" ] && ! grep -q 'console=ttyS0' /proc/cmdline; then
+  /usr/bin/mingo-splash &
+  SPLASH=$!
+fi
+stage() { echo "$1" > /run/mingo.stage; }
+stop_splash() { [ -n "$SPLASH" ] && { kill "$SPLASH" 2>/dev/null; wait "$SPLASH" 2>/dev/null; SPLASH=; }; }
+rescue() {
+  stop_splash
+  printf '\033[0m\033[2J\033[H\033[?25h'
+  echo "MINGO BOOT ERROR: $1"
+  echo "Rescue shell. Type 'exit' to try booting again."
+  setsid cttyhack sh
+  exec /init
+}
+
+stage "loading storage drivers"
+load_hw() { find /sys/devices -name modalias -exec cat {} + 2>/dev/null | sort -u | xargs modprobe -qa 2>/dev/null; }
+load_hw
+for m in $(cat /etc/mingo-modules); do modprobe -q "$m" 2>/dev/null; done
+
+stage "finding the Mingo drive"
+mkdir -p /media/mingo /lower /rw /newroot
+found=
+i=0
+while [ $i -lt 40 ]; do
+  for d in /dev/sd[a-z][0-9]* /dev/vd[a-z][0-9]* /dev/nvme*n*p[0-9]* /dev/mmcblk*p[0-9]*; do
+    [ -b "$d" ] || continue
+    mount -t vfat -o ro "$d" /media/mingo 2>/dev/null || continue
+    if [ -f /media/mingo/mingo/system.sfs ]; then found=$d; break 2; fi
+    umount /media/mingo
+  done
+  [ $((i % 4)) = 3 ] && load_hw   # USB sticks can show up late
+  sleep 0.5
+  i=$((i + 1))
+done
+[ -n "$found" ] || rescue "the Mingo USB drive was not found"
+echo "$found" > /run/mingo.dev
+
+# install a downloaded update (mingo-update put it in mingo/update/), then restart into it
+UPD=/media/mingo/mingo/update
+if [ -f $UPD/ready ] && mount -o remount,rw /media/mingo; then
+  stage "installing Mingo $(cat $UPD/ready)"
+  [ -f $UPD/system.sfs ] && mv -f $UPD/system.sfs /media/mingo/mingo/system.sfs
+  [ -f $UPD/initramfs.gz ] && mv -f $UPD/initramfs.gz /media/mingo/boot/initramfs.gz
+  [ -f $UPD/vmlinuz ] && mv -f $UPD/vmlinuz /media/mingo/boot/vmlinuz
+  rm -rf $UPD
+  sync
+  stage "restarting into the new version"
+  sleep 1
+  umount /media/mingo
+  reboot -f
+fi
+
+SFS=/media/mingo/mingo/system.sfs
+if [ -n "$(param toram)" ]; then
+  stage "copying system to RAM"
+  mkdir -p /ram && mount -t tmpfs tmpfs /ram && cp "$SFS" /ram/system.sfs && SFS=/ram/system.sfs
+fi
+
+stage "starting system"
+mount -t squashfs -o ro,loop "$SFS" /lower || rescue "cannot open mingo/system.sfs (damaged?)"
+mount -t tmpfs -o mode=755 tmpfs /rw
+mkdir -p /rw/upper /rw/work
+mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
+  || rescue "cannot create the system overlay"
+mkdir -p /newroot/mnt/mingo /newroot/run
+mount --move /media/mingo /newroot/mnt/mingo
+
+stop_splash
+for m in dev proc sys run; do mount --move /$m /newroot/$m; done
+mkdir -p /newroot/run/rw
+mount --move /rw /newroot/run/rw     # save system reads the change layer from /run/rw/upper
+exec switch_root /newroot /sbin/init

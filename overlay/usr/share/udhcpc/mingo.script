@@ -1,0 +1,14 @@
+#!/bin/sh
+# udhcpc hook: configure address, default route and DNS (resolv.conf lives in /run).
+case "$1" in
+  bound|renew)
+    ifconfig "$interface" "$ip" netmask "${subnet:-255.255.255.0}" up
+    if [ -n "$router" ]; then
+      while route del default 2>/dev/null; do :; done
+      route add default gw "${router%% *}" dev "$interface"
+    fi
+    : > /run/resolv.conf
+    for d in $dns; do echo "nameserver $d" >> /run/resolv.conf; done
+    ;;
+esac
+exit 0

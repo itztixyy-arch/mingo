@@ -1,0 +1,60 @@
+#!/bin/sh
+# mingo-update [--check]
+# Updates Mingo from the latest GitHub release of the repo in /etc/mingo-update.conf.
+# Downloads the new system to mingo/update/ on the USB drive and verifies it; the next boot
+# installs it (and restarts once). Your saved files and settings are kept.
+#   --check   print the newer version and exit 0 if an update exists, else exit 1
+REPO=
+[ -r /etc/mingo-update.conf ] && . /etc/mingo-update.conf
+cur=$(cat /etc/mingo-release 2>/dev/null)
+D=/mnt/mingo/mingo
+U=$D/update
+FILES="vmlinuz initramfs.gz system.sfs"
+
+fail() { echo "mingo-update: $1" >&2; exit 2; }
+[ -n "$REPO" ] || fail "no update source configured"
+json=$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
+  "https://api.github.com/repos/$REPO/releases/latest") || fail "cannot reach GitHub (no internet?)"
+tag=$(printf '%s' "$json" | jq -r .tag_name)
+new=${tag#v}
+[ -n "$new" ] && [ "$new" != null ] || fail "no release found"
+newest=$(printf '%s\n%s\n' "$cur" "$new" | sort -V | tail -1)
+
+if [ "$new" = "$cur" ] || [ "$newest" = "$cur" ]; then
+  [ "$1" = --check ] && exit 1
+  echo "Mingo $cur is up to date."
+  exit 0
+fi
+if [ "$1" = --check ]; then echo "$new"; exit 0; fi
+
+[ -f /run/mingo.dev ] && [ -d $D ] || fail "the Mingo USB drive is not mounted"
+if [ -f $U/ready ] && [ "$(cat $U/ready)" = "$new" ]; then
+  echo "Mingo $new is already downloaded. Restart to install it."; exit 0
+fi
+
+url() { printf '%s' "$json" | jq -r --arg n "$1" '.assets[] | select(.name == $n) | .browser_download_url'; }
+need=$(printf '%s' "$json" | jq '[.assets[] | select(.name == "system.sfs" or .name == "vmlinuz" or .name == "initramfs.gz") | .size] | add // 0')
+for f in $FILES SHA256SUMS; do [ -n "$(url $f)" ] || fail "release $tag is missing $f"; done
+free=$(df -k /mnt/mingo | awk 'NR == 2 { print $4 * 1024 }')
+have=$(du -sk $U 2>/dev/null | awk '{ print $1 * 1024 }')
+[ $((free + ${have:-0})) -gt $((need + 16777216)) ] || fail "not enough space on the USB drive ($((need / 1048576)) MB needed)"
+
+# hold the save lock so autosave does not remount the drive read-only mid-download
+i=0
+until mkdir /run/mingo.lock 2>/dev/null; do i=$((i + 1)); [ $i -gt 120 ] && fail "drive busy"; sleep 1; done
+trap 'rmdir /run/mingo.lock 2>/dev/null; sync; mount -o remount,ro /mnt/mingo 2>/dev/null' EXIT
+mount -o remount,rw /mnt/mingo || fail "cannot write to the USB drive"
+mkdir -p $U && rm -f $U/ready
+
+echo "Downloading Mingo $new ($((need / 1048576)) MB) ..."
+for f in SHA256SUMS $FILES; do
+  echo "  $f"
+  curl -fL --retry 3 -C - --progress-bar -o "$U/$f.part" "$(url $f)" || fail "download of $f failed (run mingo-update again to resume)"
+  mv -f "$U/$f.part" "$U/$f"
+done
+echo "Verifying ..."
+(cd $U && grep -E "  ($(echo $FILES | sed 's/ /|/g; s/\./\\./g'))\$" SHA256SUMS | sha256sum -c -) \
+  || { rm -f $U/system.sfs $U/vmlinuz $U/initramfs.gz; fail "download is damaged, please try again"; }
+echo "$new" > $U/ready
+echo
+echo "Mingo $new is ready. Restart the computer to install it."

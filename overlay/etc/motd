@@ -1,0 +1,8 @@
+
+  Mingo @VERSION@
+  desktop             start the graphical desktop
+  mingo help          system commands (save, version, net, settings ...)
+  tsize [%]           terminal window size in the desktop (default 40%)
+  reboot | shutdown   your changes are saved to the USB (also every 3 min)
+  Alt+F1/F2/F3        switch text terminals
+

@@ -1,0 +1,18 @@
+#!/bin/sh
+# tsize [percent]  - terminal window size in the desktop, % of the screen (10-100, default 40).
+# Resizes the active terminal window now; new terminals open at this size.
+F=$HOME/.config/mingo/tsize
+p=${1:-40}
+case "$p" in ''|*[!0-9]*) echo "usage: tsize [10-100]   (default 40)" >&2; exit 1 ;; esac
+if [ "$p" -lt 10 ] || [ "$p" -gt 100 ]; then echo "tsize: percent must be 10-100" >&2; exit 1; fi
+mkdir -p "${F%/*}" && echo "$p" > "$F"
+
+if [ -z "$DISPLAY" ]; then
+  echo "tsize: saved $p%. A text console is always full screen; this applies to terminals in the desktop."
+  exit 0
+fi
+set -- $(xdpyinfo 2>/dev/null | awk '/dimensions:/{split($2,a,"x"); print a[1], a[2]}')
+[ -n "$2" ] || { echo "tsize: cannot read screen size" >&2; exit 1; }
+w=$(($1 * p / 100)); h=$(($2 * p / 100))
+xdotool getactivewindow windowsize "$w" "$h" 2>/dev/null
+echo "terminal size: $p% of screen (${w}x${h}px)"

@@ -1,0 +1,8 @@
+#!/bin/sh
+# DHCP on every non-loopback interface.
+for n in /sys/class/net/*; do
+  i=${n##*/}
+  [ "$i" = lo ] && continue
+  ip link set "$i" up 2>/dev/null
+  udhcpc -b -q -i "$i" -s /usr/share/udhcpc/mingo.script >/dev/null 2>&1
+done

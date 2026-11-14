@@ -1,0 +1,44 @@
+#!/bin/sh
+# Mingo Settings window (dock gear icon / Super+I)
+ts=$(cat "$HOME/.config/mingo/tsize" 2>/dev/null); case $ts in ''|*[!0-9]*) ts=40 ;; esac
+kb=$(cat "$HOME/.config/mingo/keyboard" 2>/dev/null); [ -n "$kb" ] || kb=us
+tz=$(cat /etc/timezone 2>/dev/null); [ -n "$tz" ] || tz=UTC
+if [ -e /etc/mingo-autodesktop ]; then ad=TRUE; else ad=FALSE; fi
+ver=$(cat /etc/mingo-release 2>/dev/null)
+saved=$(cat /mnt/mingo/mingo/current-version.txt 2>/dev/null || echo -)
+
+# combo lists: "!"-separated, current value marked with "^"
+combo() { cur=$1; shift; out=; for v in "$@"; do [ "$v" = "$cur" ] && v="^$v"; out="$out!$v"; done; echo "${out#!}"; }
+kbl=$(combo "$kb" us gb de fr es it pt nl se no dk fi pl cz hu ru ua il tr gr jp kr br latam ca ch be)
+tzl=$(combo "$tz" UTC $(cd /usr/share/zoneinfo 2>/dev/null && find Africa America Asia Atlantic Australia Europe Indian Pacific -type f 2>/dev/null | sort))
+
+out=$(yad --title="Mingo Settings" --window-icon=preferences-system --image=preferences-system \
+  --center --width=520 --borders=18 --fixed \
+  --text="<span size='large'><b>Mingo $ver</b></span>\nSaved version $saved on the USB drive" \
+  --form --separator='|' --item-separator='!' \
+  --field="Terminal window size (% of screen)":NUM "$ts!10..100!5!0" \
+  --field="Keyboard layout":CB "$kbl" \
+  --field="Time zone":CB "$tzl" \
+  --field="Start the desktop when Mingo boots":CHK "$ad" \
+  --field=" ":LBL "" \
+  --field="Save changes now!document-save":FBTN "mingo-term -e 'mingo-hold mingo-save'" \
+  --field="Check for updates!system-software-update":FBTN "mingo-term -e 'mingo-hold mingo-update'" \
+  --field="About this computer!help-about":FBTN "mingo-term -e 'mingo-hold fastfetch'" \
+  --button="Cancel!window-close:1" --button="Apply!emblem-ok-symbolic:0") || exit 0
+
+IFS='|' read -r t k z a _ <<EOF
+$out
+EOF
+t=${t%%[.,]*}
+[ -n "$t" ] && tsize "$t" >/dev/null 2>&1
+if [ -n "$k" ] && [ "$k" != "$kb" ] && setxkbmap "$k"; then
+  mkdir -p "$HOME/.config/mingo" && echo "$k" > "$HOME/.config/mingo/keyboard"
+fi
+if [ -n "$z" ] && [ "$z" != "$tz" ] && [ -f "/usr/share/zoneinfo/$z" ]; then
+  ln -sf "/usr/share/zoneinfo/$z" /etc/localtime && echo "$z" > /etc/timezone
+  pkill -x conky; conky -d
+fi
+case $a in
+  TRUE) [ "$ad" = TRUE ] || mingo autodesktop on >/dev/null ;;
+  FALSE) [ "$ad" = FALSE ] || mingo autodesktop off >/dev/null ;;
+esac

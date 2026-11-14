@@ -1,0 +1,54 @@
+#!/bin/sh
+# Mingo system init. The initramfs already mounted /proc /sys /dev /run and the USB drive.
+mountpoint -q /proc || mount -t proc proc /proc
+mountpoint -q /sys || mount -t sysfs sysfs /sys
+mountpoint -q /dev || mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /dev/shm
+mountpoint -q /dev/pts || mount -t devpts devpts /dev/pts
+mountpoint -q /dev/shm || mount -t tmpfs tmpfs /dev/shm
+mountpoint -q /run || mount -t tmpfs tmpfs /run
+mountpoint -q /tmp || mount -t tmpfs tmpfs /tmp
+hostname -F /etc/hostname
+
+# boot animation continues from the initramfs; boot output goes to /run/boot.log
+SPLASH=
+if ! grep -qE 'nosplash|console=ttyS0' /proc/cmdline; then
+  /usr/bin/mingo-splash continue &
+  SPLASH=$!
+  exec >>/run/boot.log 2>&1
+fi
+stage() { echo "$1" > /run/mingo.stage; }
+
+stage "detecting hardware"
+find /sys/devices -name modalias -exec cat {} + 2>/dev/null | sort -u | xargs modprobe -qa 2>/dev/null
+for m in usbhid hid_generic evdev; do modprobe -q $m 2>/dev/null; done
+
+stage "starting devices"
+if command -v udevd >/dev/null 2>&1; then
+  udevd --daemon
+  udevadm trigger --action=add
+  udevadm settle --timeout=10
+else
+  echo /sbin/mdev > /proc/sys/kernel/hotplug
+  mdev -s
+fi
+
+# debug: serial shell when booted with console=ttyS0
+if grep -q 'console=ttyS0' /proc/cmdline; then
+  ( while :; do setsid /sbin/getty -n -l /usr/bin/mingo-sh 115200 ttyS0; sleep 1; done ) &
+fi
+
+stage "bringing up network"
+/usr/bin/mingo-net &
+
+stage "restoring your files"
+/usr/bin/mingo-load
+
+# auto-save every 3 minutes (shutdown/reboot also saves, see rcK)
+if [ -f /run/mingo.dev ]; then
+  ( while :; do sleep 180; /usr/bin/mingo-save >/dev/null 2>&1; done ) &
+fi
+
+stage "ready"
+touch /run/mingo.booted
+[ -n "$SPLASH" ] && wait "$SPLASH"

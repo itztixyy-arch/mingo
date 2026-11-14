@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Power
+Comment=Shut down, reboot, save
+Exec=mingo-power
+Icon=system-shutdown
+Terminal=false

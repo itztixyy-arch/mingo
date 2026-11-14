@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Mingo USB
+Comment=Files on the Mingo USB drive (saved changes)
+Exec=pcmanfm /mnt/mingo
+Icon=drive-removable-media-usb
+Terminal=false

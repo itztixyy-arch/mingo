@@ -1,0 +1,12 @@
+#!/bin/sh
+# Desktop session (started by ~/.xinitrc inside a D-Bus session)
+picom -b 2>/dev/null
+if command -v pcmanfm >/dev/null 2>&1; then
+  pcmanfm --desktop &                     # wallpaper + desktop icons from ~/Desktop
+else
+  feh --no-fehbg --bg-fill /usr/share/mingo/wallpaper.png
+fi
+tint2 &
+(sleep 1; conky -d) &
+(sleep 45; mingo-update-notify) &       # offer new GitHub releases
+exec openbox

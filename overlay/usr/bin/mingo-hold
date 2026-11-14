@@ -1,0 +1,5 @@
+#!/bin/sh
+# Run a command in a terminal and keep the window open afterwards.
+"$@"
+printf '\n\033[90m[press Enter to close]\033[0m'
+read -r _

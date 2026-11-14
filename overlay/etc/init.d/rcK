@@ -1,0 +1,4 @@
+#!/bin/sh
+/usr/bin/mingo-save
+sync
+umount -a -r 2>/dev/null
