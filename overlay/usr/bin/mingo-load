@@ -21,7 +21,9 @@ n=$F
 while [ "$n" -le "$N" ]; do
   f=$D/changes/changes-$n.mingo
   if [ -f "$f" ]; then
-    tar -xzf "$f" -C / 2>/dev/null || echo "mingo: changes-$n.mingo is damaged, partly skipped"
+    # system version files always come from the installed system (keeps updates effective)
+    tar -xzf "$f" -C / --exclude=./etc/mingo-release --exclude=./etc/mingo-update.conf 2>/dev/null \
+      || echo "mingo: changes-$n.mingo is damaged, partly skipped"
     if [ -f /.mingo-deleted ]; then
       while IFS= read -r p; do
         case $p in ''|/|/mnt|/mnt/*|/run|/run/*|/proc*|/sys*|/dev*) ;; *) rm -rf "$p" ;; esac

@@ -8,8 +8,9 @@
 MP=/mnt/mingo
 D=$MP/mingo
 U=/run/rw/upper
-# never saved: caches, temp files, session junk
-EXCL='^\./(root/\.cache|var/cache|var/tmp|tmp|root/\.Xauthority|root/\.xsession-errors|\.mingo-)'
+# never saved: caches, temp files, session junk, and the files that identify the installed
+# system version (an old copy would survive an update and make it look like the old version)
+EXCL='^\./(root/\.cache|var/cache|var/tmp|tmp|root/\.Xauthority|root/\.xsession-errors|\.mingo-|etc/mingo-release$|etc/mingo-update\.conf$)'
 
 { [ -f /run/mingo.dev ] && [ -d $U ] && [ -d $D ]; } || { echo "mingo: no Mingo drive, nothing saved" >&2; exit 1; }
 
