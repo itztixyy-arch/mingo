@@ -5,7 +5,7 @@ MP=/mnt/mingo
 D=$MP/mingo
 U=/run/rw/upper
 
-if [ ! -f $D/system.sfs ] || [ ! -d $U ]; then
+if [ ! -f $D/current-version.txt ] || [ ! -d $U ]; then
   echo "mingo: Mingo drive not mounted, changes will NOT be saved"
   rm -f /run/mingo.dev
   exit 0

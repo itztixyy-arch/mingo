@@ -1,6 +1,13 @@
 #!/bin/sh
-# Mingo early boot (tiny initramfs). Finds the Mingo USB drive, mounts the compressed
-# system (mingo/system.sfs) under a RAM overlay, then hands over to the real system.
+# Mingo early boot (tiny initramfs). Finds the system (mingo/system.sfs) and the data
+# partition (mingo/current-version.txt + saved changes), mounts the system under a RAM
+# overlay, then hands over to the real system.
+#
+# Where things are, depending on how the ISO reached the computer:
+#   stick written in DD mode (Etcher, Rufus "DD Image"): partition 1 = ISO file system
+#     with the system, partition 2 = FAT "MINGO" with your data (and updated system files)
+#   stick written in Rufus "ISO Image" mode: one FAT partition with everything
+#   ISO booted as a CD/DVD: the system on the disc, the data partition through a loop device
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
@@ -12,17 +19,33 @@ param() { for a in $(cat /proc/cmdline); do case $a in "$1"=*) echo "${a#*=}"; r
 
 SPLASH=
 if [ -z "$(param nosplash)" ] && ! grep -q 'console=ttyS0' /proc/cmdline; then
-  /usr/bin/mingo-splash &
+  /usr/bin/mingo-splash 2>/run/splash.err &
   SPLASH=$!
 fi
 stage() { echo "$1" > /run/mingo.stage; }
-stop_splash() { [ -n "$SPLASH" ] && { kill "$SPLASH" 2>/dev/null; wait "$SPLASH" 2>/dev/null; SPLASH=; }; }
+# USR1 = hand over to the next stage (the graphical splash keeps its picture on screen)
+stop_splash() { [ -n "$SPLASH" ] && { kill -${1:-TERM} "$SPLASH" 2>/dev/null; wait "$SPLASH" 2>/dev/null; SPLASH=; }; }
+
+# Never restart the boot on its own (that looked like an endless loading bar): explain,
+# show what the computer can see, give a shell, then wait.
 rescue() {
   stop_splash
   printf '\033[0m\033[2J\033[H\033[?25h'
-  echo "MINGO BOOT ERROR: $1"
-  echo "Rescue shell. Type 'exit' to try booting again."
+  echo "MINGO COULD NOT START: $1"
+  echo
+  echo "Disks and partitions this computer sees:"
+  for d in /sys/class/block/*; do
+    n=${d##*/}
+    case $n in loop*|ram*) continue ;; esac
+    echo "  /dev/$n  $(( $(cat "$d/size" 2>/dev/null || echo 0) / 2048 )) MB  $(blkid "/dev/$n" 2>/dev/null | cut -d: -f2-)"
+  done
+  echo
+  echo "If the stick was made with Rufus, write it again (ISO or DD mode both work)"
+  echo "and let it finish. Type 'exit' to try again, or press Ctrl+Alt+Del to restart."
+  t0=$(date +%s)
   setsid cttyhack sh
+  # a shell that cannot start (no keyboard/console) must not turn into a restart loop
+  [ $(( $(date +%s) - t0 )) -lt 3 ] && while :; do sleep 3600; done
   exec /init
 }
 
@@ -32,60 +55,70 @@ load_hw
 for m in $(cat /etc/mingo-modules); do modprobe -q "$m" 2>/dev/null; done
 
 stage "finding the Mingo drive"
-mkdir -p /media/mingo /lower /rw /newroot
-found=
+mkdir -p /media/mingo /media/sys /lower /rw /newroot
+DATA=      # device of the writable data partition (mounted on /media/mingo)
+SYS=       # path of system.sfs
 
-# The data partition is appended to the ISO image after the ISO file system. A CD/DVD
-# reports 2048-byte sectors, so neither GRUB nor the kernel can read it as a normal
-# partition: mount it through a loop device at the byte offset taken from the ISO's
-# own partition table. This is what lets the ISO be booted directly in a VM as a disc.
-cd_find() {
-  dev=$1
-  mount -t iso9660 -o ro "$dev" /media/mingo 2>/dev/null || return 1
-  if [ -f /media/mingo/mingo/system.sfs ]; then found=$dev; return 0; fi
-  umount /media/mingo
-  p=446
+# data partition on a CD/DVD: the FAT partition appended to the ISO, through a loop device
+# at the byte offset from the ISO's own partition table (a disc has 2048-byte sectors)
+cd_data() {
+  dev=$1; p=446
   while [ $p -le 494 ]; do
     t=$(od -An -tu1 -j $((p + 4)) -N 1 "$dev" 2>/dev/null | tr -d ' \n')
     lba=$(od -An -tu4 -j $((p + 8)) -N 4 "$dev" 2>/dev/null | tr -d ' \n')
-    if [ -n "$t" ] && [ "$t" != 0 ] && [ -n "$lba" ] &&
-       losetup -r -o $((lba * 512)) /dev/loop0 "$dev" 2>/dev/null; then
-      if mount -t vfat -o ro /dev/loop0 /media/mingo 2>/dev/null; then
-        if [ -f /media/mingo/mingo/system.sfs ]; then found=/dev/loop0; return 0; fi
+    if [ -n "$t" ] && [ "$t" != 0 ] && [ -n "$lba" ] && losetup -r -o $((lba * 512)) /dev/loop7 "$dev" 2>/dev/null; then
+      if mount -t vfat -o ro /dev/loop7 /media/mingo 2>/dev/null; then
+        [ -f /media/mingo/mingo/current-version.txt ] && { DATA=/dev/loop7; return 0; }
         umount /media/mingo
       fi
-      losetup -d /dev/loop0 2>/dev/null
+      losetup -d /dev/loop7 2>/dev/null
     fi
     p=$((p + 16))
   done
   return 1
 }
 
+scan() {
+  for d in /dev/sd[a-z][0-9]* /dev/vd[a-z][0-9]* /dev/nvme*n*p[0-9]* /dev/mmcblk*p[0-9]* /dev/sr[0-9]*; do
+    [ -b "$d" ] || continue
+    # the data partition: FAT with mingo/current-version.txt
+    if [ -z "$DATA" ] && mount -t vfat -o ro "$d" /media/mingo 2>/dev/null; then
+      if [ -f /media/mingo/mingo/current-version.txt ]; then DATA=$d; else umount /media/mingo; fi
+    fi
+    # the system on the ISO file system (DD-mode stick or disc)
+    if [ -z "$SYS" ] && mount -t iso9660 -o ro "$d" /media/sys 2>/dev/null; then
+      if [ -f /media/sys/mingo/system.sfs ]; then
+        SYS=/media/sys/mingo/system.sfs
+        case $d in /dev/sr*) [ -z "$DATA" ] && cd_data "$d" ;; esac
+      else
+        umount /media/sys
+      fi
+    fi
+  done
+}
+
 i=0
 while [ $i -lt 40 ]; do
-  for d in /dev/sd[a-z][0-9]* /dev/vd[a-z][0-9]* /dev/nvme*n*p[0-9]* /dev/mmcblk*p[0-9]*; do
-    [ -b "$d" ] || continue
-    mount -t vfat -o ro "$d" /media/mingo 2>/dev/null || continue
-    if [ -f /media/mingo/mingo/system.sfs ]; then found=$d; break 2; fi
-    umount /media/mingo
-  done
+  scan
+  # an updated system (mingo-update) or a Rufus "ISO mode" stick: system on the data partition
+  [ -n "$DATA" ] && [ -f /media/mingo/mingo/system.sfs ] && break
+  [ -n "$DATA" ] && [ -n "$SYS" ] && break
   [ $((i % 4)) = 3 ] && load_hw   # USB sticks can show up late
   sleep 0.5
   i=$((i + 1))
 done
-if [ -z "$found" ]; then
-  for d in /dev/sr[0-9]*; do
-    [ -b "$d" ] || continue
-    cd_find "$d" && break
-  done
+if [ -n "$DATA" ] && [ -f /media/mingo/mingo/system.sfs ]; then
+  SYS=/media/mingo/mingo/system.sfs
+  mountpoint -q /media/sys && umount /media/sys
 fi
-[ -n "$found" ] || rescue "the Mingo drive was not found"
-echo "$found" > /run/mingo.dev
+[ -n "$SYS" ] || rescue "the Mingo system file (mingo/system.sfs) was not found on any drive"
+[ -n "$DATA" ] && echo "$DATA" > /run/mingo.dev
 
 # install a downloaded update (mingo-update put it in mingo/update/), then restart into it
 UPD=/media/mingo/mingo/update
-if [ -f $UPD/ready ] && mount -o remount,rw /media/mingo; then
+if [ -n "$DATA" ] && [ -f $UPD/ready ] && mount -o remount,rw /media/mingo; then
   stage "installing Mingo $(cat $UPD/ready)"
+  mkdir -p /media/mingo/boot
   [ -f $UPD/system.sfs ] && mv -f $UPD/system.sfs /media/mingo/mingo/system.sfs
   [ -f $UPD/initramfs.gz ] && mv -f $UPD/initramfs.gz /media/mingo/boot/initramfs.gz
   [ -f $UPD/vmlinuz ] && mv -f $UPD/vmlinuz /media/mingo/boot/vmlinuz
@@ -97,22 +130,21 @@ if [ -f $UPD/ready ] && mount -o remount,rw /media/mingo; then
   reboot -f
 fi
 
-SFS=/media/mingo/mingo/system.sfs
 if [ -n "$(param toram)" ]; then
   stage "copying system to RAM"
-  mkdir -p /ram && mount -t tmpfs tmpfs /ram && cp "$SFS" /ram/system.sfs && SFS=/ram/system.sfs
+  mkdir -p /ram && mount -t tmpfs tmpfs /ram && cp "$SYS" /ram/system.sfs && SYS=/ram/system.sfs
 fi
 
 stage "starting system"
-mount -t squashfs -o ro,loop "$SFS" /lower || rescue "cannot open mingo/system.sfs (damaged?)"
+mount -t squashfs -o ro,loop "$SYS" /lower || rescue "cannot open $SYS (damaged? write the stick again)"
 mount -t tmpfs -o mode=755 tmpfs /rw
 mkdir -p /rw/upper /rw/work
 mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
   || rescue "cannot create the system overlay"
 mkdir -p /newroot/mnt/mingo /newroot/run
-mount --move /media/mingo /newroot/mnt/mingo
+[ -n "$DATA" ] && mount --move /media/mingo /newroot/mnt/mingo
 
-stop_splash
+stop_splash USR1
 for m in dev proc sys run; do mount --move /$m /newroot/$m; done
 mkdir -p /newroot/run/rw
 mount --move /rw /newroot/run/rw     # save system reads the change layer from /run/rw/upper

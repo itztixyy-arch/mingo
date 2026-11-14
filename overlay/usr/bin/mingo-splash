@@ -3,66 +3,84 @@
 # when /run/mingo.booted appears. Disable with the "nosplash" boot option.
 # Preview in a running system: mingo-splash demo
 T=/dev/console
+mode=$1
+if [ "$mode" = demo ]; then
+  rm -f /run/mingo.booted /run/mingo.splash
+  ( sleep 4; touch /run/mingo.booted ) &
+fi
+# graphical boot screen when there is a framebuffer; this text version otherwise
+{ date; echo "mode=$mode fb0=$(ls /dev/fb* 2>/dev/null | tr '
+' ' ')"; /usr/bin/mingo-fbsplash --check; echo "check=$?"; } >> /run/splash.log 2>&1
+if [ "$mode" != text ] && [ -x /usr/bin/mingo-fbsplash ] && [ -e /dev/fb0 ] && /usr/bin/mingo-fbsplash --check 2>/dev/null; then
+  [ "$mode" = continue ] && exec /usr/bin/mingo-fbsplash continue
+  exec /usr/bin/mingo-fbsplash
+fi
 exec >"$T" 2>&1
 
-mode=$1
 i=0
 if [ "$mode" = demo ]; then
-  rm -f /run/mingo.booted
-  ( sleep 4; touch /run/mingo.booted ) &
+  :
 elif [ "$mode" = continue ]; then
   read -r i < /run/mingo.splash 2>/dev/null
   case $i in ''|*[!0-9]*) i=0 ;; esac
 fi
 
 rows=0; cols=0
+W=31   # logo width in characters
 # the console can change size mid-boot (graphics driver loads): re-center when it does
 layout() {
   set -- $(stty size < "$T" 2>/dev/null)
   [ -n "$2" ] || set -- 24 80
   [ "$1" = "$rows" ] && [ "$2" = "$cols" ] && return 1
   rows=$1; cols=$2
-  top=$(( (rows - 12) / 2 )); [ $top -lt 1 ] && top=1
-  col=$(( (cols - 30) / 2 )); [ $col -lt 1 ] && col=1
+  top=$(( (rows - 11) / 2 )); [ $top -lt 1 ] && top=1
+  col=$(( (cols - W) / 2 )); [ $col -lt 1 ] && col=1
   return 0
 }
 layout
 
-n=0
-while IFS= read -r l; do eval "L$n=\$l"; n=$((n+1)); done <<'EOF'
- __  __ ___ _   _  ____  ___
-|  \/  |_ _| \ | |/ ___|/ _ \
-| |\/| || ||  \| | |  _| | | |
-| |  | || || |\  | |_| | |_| |
-|_|  |_|___|_| \_|\____|\___/
-EOF
+# block letters, 5 rows; one variable per letter and row (L<letter><row>)
+set_rows() { k=$1; shift; r=0; for v in "$@"; do eval "L$k$r=\$v"; r=$((r + 1)); done; }
+set_rows 0 '█   █' '██ ██' '█ █ █' '█   █' '█   █'
+set_rows 1 '███'   ' █ '   ' █ '   ' █ '   '███'
+set_rows 2 '█   █' '██  █' '█ █ █' '█  ██' '█   █'
+set_rows 3 '▄███▄' '█    ' '█  ▄▄' '█   █' '▀███▀'
+set_rows 4 '▄███▄' '█   █' '█   █' '█   █' '▀███▀'
+COLORS='34 34 35 35 35'   # blue -> magenta
 
-center() { # $1=row $2=text
-  c=$(( (cols - ${#2}) / 2 )); [ $c -lt 1 ] && c=1
-  printf '\033[%d;%dH\033[2K%s' "$1" "$c" "$2"
+at() { printf '\033[%d;%dH' "$1" "$2"; }
+line() { # $1=row $2=text $3=visible width : centered, line cleared first
+  printf '\033[%d;1H\033[2K' "$1"
+  c=$(( (cols - $3) / 2 )); [ $c -lt 1 ] && c=1
+  printf '\033[%d;%dH%s' "$1" "$c" "$2"
 }
 
 frame() { # $1=frame  $2=percent
+  shine=$(( ($1 / 3) % 9 ))       # a white shimmer sweeps across the letters
   r=0
   while [ $r -lt 5 ]; do
-    eval "l=\$L$r"
-    printf '\033[%d;%dH\033[1;%dm%s' $(( top + r )) "$col" $(( 31 + ($1 / 2 + r) % 6 )) "$l"
+    at $(( top + r )) "$col"
+    k=0
+    for c in $COLORS; do
+      [ $k = $shine ] && c=37
+      eval "printf '\033[1;%sm%s  ' $c \"\$L$k$r\""
+      k=$((k + 1))
+    done
     r=$((r + 1))
   done
   printf '\033[0;37m'
-  center $(( top + 6 )) "portable linux on a stick"
-  f=$(( $2 * 30 / 100 )); bar=''; k=0
-  while [ $k -lt 30 ]; do
-    if [ $k -lt $f ]; then bar="$bar="; else bar="$bar "; fi
+  line $(( top + 6 )) "portable linux on a stick" 25
+  f=$(( $2 * 32 / 100 )); fill=''; rest=''; k=0
+  while [ $k -lt 32 ]; do
+    if [ $k -lt $f ]; then fill="$fill█"; else rest="$rest░"; fi
     k=$((k + 1))
   done
-  printf '\033[0;36m'
-  center $(( top + 8 )) "[$bar] $(printf '%3d' "$2")%"
-  case $(( $1 % 4 )) in 0) s='|' ;; 1) s='/' ;; 2) s='-' ;; *) s='\' ;; esac
+  line $(( top + 8 )) "$(printf '\033[1;36m%s\033[0;90m%s\033[0;37m  %3d%%' "$fill" "$rest" "$2")" 38
   stage=starting
   [ -r /run/mingo.stage ] && read -r stage < /run/mingo.stage
+  case $(( ($1 / 3) % 4 )) in 0) d='   ' ;; 1) d='.  ' ;; 2) d='.. ' ;; *) d='...' ;; esac
   printf '\033[0;90m'
-  center $(( top + 10 )) "$s $stage"
+  line $(( top + 10 )) "$stage$d" $(( ${#stage} + 3 ))
   echo "$1" > /run/mingo.splash 2>/dev/null
 }
 
@@ -83,6 +101,6 @@ while [ $p -lt 100 ]; do
   sleep 0.03 2>/dev/null || true
 done
 printf '\033[1;32m'
-center $(( top + 10 )) "Welcome to Mingo"
+line $(( top + 10 )) "Welcome to Mingo" 16
 sleep 0.6 2>/dev/null || sleep 1
 printf '\033[0m\033[2J\033[H\033[?25h'

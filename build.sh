@@ -17,7 +17,7 @@ SRC="$(cd "$(dirname "$0")" && pwd)"
 OUT="$SRC/out"
 W="$HOME/.mingo-build"            # build on ext4, not /mnt/d (symlinks, permissions, speed)
 MIRROR=https://dl-cdn.alpinelinux.org/alpine/latest-stable
-FREE_MB=${FREE_MB:-768}           # space left on the stick for saved changes and updates
+FREE_MB=${FREE_MB:-512}           # room for saved changes (plus space for two system files, see DATA_MB)
 VERSION=$(tr -dc '0-9A-Za-z.-' < "$SRC/VERSION")
 # GitHub repo the OS updates itself from (owner/name)
 REPO=${MINGO_REPO:-${GITHUB_REPOSITORY:-$(tr -dc '0-9A-Za-z._/-' < "$SRC/UPDATE_REPO" 2>/dev/null || true)}}
@@ -30,6 +30,7 @@ PKGS="kmod bash bash-completion nano less htop mc tmux curl wget openssh-client 
   dbus dbus-x11 font-dejavu papirus-icon-theme yad
   openbox tint2 picom conky feh dmenu scrot xdotool lxterminal pcmanfm mousepad firefox-esr
   xterm xdpyinfo xrdb xsetroot xset setxkbmap xdg-utils
+  arandr brightnessctl playerctl
   font-inter adw-gtk3 rofi dunst libnotify python3 py3-gobject3 py3-cairo py3-xlib libwnck3 gtk+3.0
   networkmanager networkmanager-wifi networkmanager-tui network-manager-applet wpa_supplicant
   pipewire wireplumber pipewire-pulse pipewire-alsa alsa-utils alsa-ucm-conf pavucontrol sof-firmware
@@ -115,6 +116,38 @@ for f in usr/bin/firefox-esr usr/bin/pcmanfm usr/bin/lxterminal usr/bin/mousepad
   [ -e "root/$f" ] || echo "  WARN: missing /$f"
 done
 
+echo "== boot screen"
+rm -f root/etc/resolv.conf; cp -L /etc/resolv.conf root/etc/resolv.conf
+chroot root apk add --no-cache --virtual .mingo-cc gcc musl-dev linux-headers >/dev/null
+cp "$SRC/splash/mingo-fbsplash.c" root/tmp/
+chroot root gcc -O2 -static -s -o /usr/bin/mingo-fbsplash /tmp/mingo-fbsplash.c -lm
+chroot root apk del --no-cache .mingo-cc >/dev/null
+rm -f root/etc/resolv.conf; ln -s /run/resolv.conf root/etc/resolv.conf
+rm -f root/tmp/mingo-fbsplash.c root/var/cache/apk/*
+SPL=root/usr/share/mingo/splash; mkdir -p $SPL
+pick_font() { f=$(find root/usr/share/fonts -iname "$1" 2>/dev/null | head -1); echo "${f:-DejaVu-Sans}"; }
+FB=$(pick_font 'Inter*Bold.*tf'); [ "$FB" = DejaVu-Sans ] && FB=$(pick_font 'InterVariable.ttf')
+FR=$(pick_font 'Inter*Regular.*tf'); [ "$FR" = DejaVu-Sans ] && FR=$(pick_font 'InterVariable.ttf')
+rgba() { # name font pointsize colour text  ->  $SPL/name.rgba (u32 w, u32 h, RGBA)
+  convert -background none -fill "$4" -font "$2" -pointsize "$3" label:"$5" -trim +repage \
+    -bordercolor none -border 4 png:"$SPL/$1.png"
+  convert "$SPL/$1.png" -depth 8 "rgba:$SPL/$1.raw"
+  python3 - "$SPL/$1.png" "$SPL/$1.raw" "$SPL/$1.rgba" <<'PY'
+import struct, subprocess, sys
+w, h = map(int, subprocess.check_output(['identify', '-format', '%w %h', sys.argv[1]]).split())
+open(sys.argv[3], 'wb').write(struct.pack('<II', w, h) + open(sys.argv[2], 'rb').read())
+PY
+  rm -f "$SPL/$1.png" "$SPL/$1.raw"
+}
+rgba logo "$FB" 190 white "mingo"
+rgba tagline "$FR" 30 '#c9d4e3' "portable linux on a stick"
+for st in "loading:Loading drivers" "finding:Looking for your Mingo drive" "starting:Starting Mingo" \
+          "detecting:Detecting hardware" "bringing:Connecting to the network" "restoring:Restoring your files" \
+          "ready:Ready" "installing:Installing the update" "restarting:Restarting" "copying:Copying system to memory"; do
+  rgba "stage-${st%%:*}" "$FR" 24 '#b8c4d6' "${st#*:}"
+done
+ls $SPL | wc -l | sed 's/^/  splash images: /'
+
 echo "== initramfs (small: just enough to find the stick)"
 I=initrd
 mkdir -p $I/bin $I/sbin $I/usr/bin $I/etc $I/lib $I/dev $I/proc $I/sys $I/run $I/tmp
@@ -126,9 +159,10 @@ for a in $(chroot $I /bin/busybox --list-full); do
   mkdir -p "$I/$(dirname "$a")"; [ -e "$I/$a" ] || ln -s /bin/busybox "$I/$a"
 done
 cp "$SRC/initramfs/init" $I/init
-cp root/usr/bin/mingo-splash $I/usr/bin/mingo-splash
+cp root/usr/bin/mingo-splash root/usr/bin/mingo-fbsplash $I/usr/bin/
+mkdir -p $I/usr/share/mingo && cp -a $SPL $I/usr/share/mingo/
 sed -i 's/\r$//' $I/init $I/usr/bin/mingo-splash
-chmod 755 $I/init $I/usr/bin/mingo-splash
+chmod 755 $I/init $I/usr/bin/mingo-splash $I/usr/bin/mingo-fbsplash
 echo "$INITRD_MODS" | tr -s ' \n' '\n' | sed '/^$/d' > $I/etc/mingo-modules
 # copy the wanted modules plus their dependencies, uncompressed (busybox modprobe)
 python3 - "root/lib/modules/$KVER" "$I/lib/modules/$KVER" $INITRD_MODS <<'PY'
@@ -191,8 +225,14 @@ insmod part_gpt
 insmod fat
 insmod search_fs_file
 
-# Look for the kernel, not the system file: a CD/DVD cannot read the appended FAT
-# partition, but the kernel is also on the ISO file system, which GRUB can read.
+# 1) the MINGO data partition: holds the kernel of an installed update (and the original
+#    one), so it wins over the ISO copy. Not readable on a CD/DVD, then 2) applies.
+search --no-floppy --label --set=root MINGO
+linux /boot/vmlinuz quiet loglevel=3 vt.global_cursor_default=0
+initrd /boot/initramfs.gz
+boot
+# 2) any drive with the kernel: the ISO file system (stick or disc), or a stick that
+#    Rufus wrote in "ISO Image" mode (one FAT partition holding all ISO files)
 search --no-floppy --file --set=root /boot/vmlinuz
 linux /boot/vmlinuz quiet loglevel=3 vt.global_cursor_default=0
 initrd /boot/initramfs.gz
@@ -201,8 +241,7 @@ boot
 echo
 echo "MINGO: could not start Mingo from this stick."
 echo "The boot files are missing or the stick was written incompletely."
-echo "If Rufus asked, use DD Image mode - ISO Image mode drops the MINGO"
-echo "partition, which is where the system lives. Or use balenaEtcher."
+echo "Write the stick again with balenaEtcher or Rufus and let it finish."
 echo
 echo "Disks GRUB can see:"
 ls
@@ -210,14 +249,16 @@ echo
 echo "Press any key to continue to the GRUB prompt."
 sleep --interruptible 60
 EOF
-GRUB_MODS="part_msdos part_gpt fat iso9660 search search_fs_file normal linux echo configfile all_video sleep"
+GRUB_MODS="part_msdos part_gpt fat iso9660 search search_fs_file search_label normal linux echo configfile all_video sleep"
 grub-mkstandalone -O x86_64-efi -o BOOTX64.EFI --modules="$GRUB_MODS" "boot/grub/grub.cfg=grub.cfg"
 # BIOS: small core image with the config built in (a standalone image is too big for El Torito)
 grep -v -e '^insmod all_video' -e '^set timeout' grub.cfg > grub-bios.cfg
 grub-mkimage -O i386-pc-eltorito -o bios.img -p /boot/grub -c grub-bios.cfg \
-  biosdisk part_msdos part_gpt fat iso9660 search search_fs_file linux normal echo sleep
+  biosdisk part_msdos part_gpt fat iso9660 search search_fs_file search_label linux normal echo sleep
 
-DATA_MB=$(( SFS_MB + 64 + FREE_MB ))
+# the data partition holds saved changes and installed updates (a new system.sfs);
+# the original system lives in the ISO file system
+DATA_MB=$(( 64 + 2 * SFS_MB + FREE_MB ))   # installed update + a downloading one + your changes
 echo "== MINGO data partition ($DATA_MB MB)"
 rm -f data.img; truncate -s ${DATA_MB}M data.img
 mkfs.vfat -F 32 -n MINGO data.img >/dev/null
@@ -225,13 +266,17 @@ mmd   -i data.img ::/boot ::/boot/grub ::/EFI ::/EFI/BOOT ::/mingo ::/mingo/chan
 mcopy -i data.img vmlinuz initramfs.gz ::/boot/
 mcopy -i data.img grub.cfg ::/boot/grub/grub.cfg
 mcopy -i data.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
-mcopy -i data.img system.sfs ::/mingo/system.sfs
 echo 0 > current-version.txt
 mcopy -i data.img current-version.txt ::/mingo/current-version.txt
 mcopy -i data.img current-version.txt ::/mingo/full-version.txt
 
 echo "== hybrid ISO"
-rm -rf isoroot; mkdir -p isoroot/boot/grub
+rm -rf isoroot; mkdir -p isoroot/boot/grub isoroot/mingo/changes isoroot/EFI/BOOT
+# the system and the start-up files in the ISO file system: read from here on a DD-mode
+# stick and a disc, and copied as-is by Rufus "ISO Image" mode (which then also works)
+cp system.sfs current-version.txt isoroot/mingo/
+cp current-version.txt isoroot/mingo/full-version.txt
+cp BOOTX64.EFI isoroot/EFI/BOOT/BOOTX64.EFI
 cp bios.img isoroot/boot/grub/bios.img
 cp grub.cfg isoroot/boot/grub/grub.cfg
 # kernel + start-up image in the ISO file system as well: a CD/DVD cannot read the
@@ -240,7 +285,7 @@ cp vmlinuz initramfs.gz isoroot/boot/
 truncate -s $(( $(stat -c %s BOOTX64.EFI) / 1048576 + 3 ))M isoroot/boot/grub/efi.img && mkfs.vfat -n MINGO_EFI isoroot/boot/grub/efi.img >/dev/null
 mmd -i isoroot/boot/grub/efi.img ::/EFI ::/EFI/BOOT
 mcopy -i isoroot/boot/grub/efi.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
-printf 'Mingo %s\r\nFlash this ISO to a USB stick in DD mode (Rufus: "DD Image", or balenaEtcher).\r\nYour files are saved on the stick partition named MINGO.\r\n' "$VERSION" > isoroot/README.TXT
+printf 'Mingo %s\r\nWrite this ISO to a USB stick with balenaEtcher or Rufus (ISO or DD mode).\r\nYour files are saved on the stick, in the mingo folder of the MINGO partition.\r\n' "$VERSION" > isoroot/README.TXT
 ISO="$OUT/mingo.iso"
 rm -f "$ISO" "$OUT/mingo.img"
 xorriso -as mkisofs -o "$ISO" -V MINGO_BOOT -R -J -quiet \

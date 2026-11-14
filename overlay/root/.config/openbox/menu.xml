@@ -16,6 +16,8 @@
   <separator/>
   <menu id="client-list-menu"/>
   <separator/>
+  <item label="App Center"><action name="Execute"><command>mingo-apps</command></action></item>
+  <item label="Change Wallpaper"><action name="Execute"><command>mingo-wallpaper</command></action></item>
   <item label="Settings"><action name="Execute"><command>mingo-settings</command></action></item>
   <item label="Wi-Fi"><action name="Execute"><command>mingo-term -e nmtui</command></action></item>
   <item label="Sound"><action name="Execute"><command>pavucontrol</command></action></item>

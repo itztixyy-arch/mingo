@@ -15,7 +15,7 @@ window {
   border-radius: 12px;
 }
 mainbox { padding: 6px; children: [ listview ]; }
-listview { lines: 9; fixed-height: false; dynamic: true; scrollbar: false; spacing: 1px; }
+listview { lines: 10; fixed-height: false; dynamic: true; scrollbar: false; spacing: 1px; }
 element { padding: 7px 10px; spacing: 10px; border-radius: 7px; }
 element selected.normal { background-color: #3b82f6; }
 element-icon { size: 18px; }

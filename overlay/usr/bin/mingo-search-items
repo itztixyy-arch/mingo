@@ -45,7 +45,10 @@ gawk -F= '
 
 # settings
 row "Settings"                 preferences-system        "cmd:mingo-settings"   "settings preferences control panel"
-row "Wi-Fi"                    network-wireless          "cmd:command -v nm-connection-editor >/dev/null && nm-connection-editor || mingo-term -e nmtui" "wifi wireless network internet"
+row "App Center"               system-software-install   "cmd:mingo-apps"       "apps install software store programs"
+row "Wallpaper"                preferences-desktop-wallpaper "cmd:mingo-wallpaper" "wallpaper background picture desktop"
+row "Displays"                 video-display             "cmd:arandr"           "display screen resolution monitor"
+row "Wi-Fi"                    network-wireless         "cmd:command -v nm-connection-editor >/dev/null && nm-connection-editor || mingo-term -e nmtui" "wifi wireless network internet"
 row "Sound"                    audio-volume-high         "cmd:pavucontrol"      "sound audio volume speaker microphone"
 row "Keyboard layout"          input-keyboard            "cmd:mingo-settings"   "keyboard layout language settings"
 row "Time zone"                preferences-system-time   "cmd:mingo-settings"   "time zone clock date settings"

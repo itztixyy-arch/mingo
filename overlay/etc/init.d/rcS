@@ -60,6 +60,13 @@ if [ -f /run/mingo.dev ]; then
   ( while :; do sleep 180; /usr/bin/mingo-save >/dev/null 2>&1; done ) &
 fi
 
+# boot option "mingodebug": write what happened during boot to the stick (mingo/debug.txt)
+if grep -q mingodebug /proc/cmdline && [ -f /run/mingo.dev ] && mount -o remount,rw /mnt/mingo; then
+  { echo "== cmdline"; cat /proc/cmdline; echo "== fb"; cat /proc/fb; ls -l /dev/fb* /dev/dri 2>&1
+    echo "== splash.log"; cat /run/splash.log; echo "== splash.err"; cat /run/splash.err
+    echo "== boot.log"; cat /run/boot.log; echo "== dmesg"; dmesg | tail -150; } > /mnt/mingo/mingo/debug.txt 2>&1
+  sync; mount -o remount,ro /mnt/mingo
+fi
 stage "ready"
 touch /run/mingo.booted
 [ -n "$SPLASH" ] && wait "$SPLASH"

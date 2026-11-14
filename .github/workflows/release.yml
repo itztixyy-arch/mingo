@@ -31,8 +31,8 @@ jobs:
 
       - name: Collect release files
         run: |
-          sudo mv out/mingo.iso out/release/
-          cd out/release && sudo sh -c 'sha256sum vmlinuz initramfs.gz system.sfs mingo.iso > SHA256SUMS'
+          sudo xz -T0 -3 -c out/mingo.iso | sudo tee out/release/mingo.iso.xz >/dev/null   # GitHub assets must be < 2 GB
+          cd out/release && sudo sh -c 'sha256sum vmlinuz initramfs.gz system.sfs mingo.iso.xz > SHA256SUMS'
           ls -lh
 
       - name: Upload build (manual runs)
@@ -50,4 +50,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" out/release/* \
             --title "Mingo $VERSION" \
-            --notes "Flash \`mingo.img.xz\` with Rufus or balenaEtcher (2 GB+ USB stick), or run \`mingo update\` on an existing Mingo stick. The other files are used by the updater."
+            --notes "Unpack \`mingo.iso.xz\` (7-Zip) and write \`mingo.iso\` to a 4 GB+ USB stick with balenaEtcher or Rufus (ISO or DD mode); balenaEtcher can also write the .xz directly. Existing Mingo sticks: run \`mingo update\` or use Settings. The other files are used by the updater."

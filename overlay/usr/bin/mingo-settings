@@ -21,6 +21,9 @@ out=$(yad --title="Mingo Settings" --window-icon=preferences-system --image=pref
   --field="Time zone":CB "$tzl" \
   --field="Start the desktop when Mingo boots":CHK "$ad" \
   --field=" ":LBL "" \
+  --field="Wallpaper!preferences-desktop-wallpaper":FBTN "mingo-wallpaper" \
+  --field="Displays (resolution, monitors)!video-display":FBTN "arandr" \
+  --field="App Center (install apps)!system-software-install":FBTN "mingo-apps" \
   --field="Wi-Fi networks!network-wireless":FBTN "mingo-term -e nmtui" \
   --field="Sound!audio-volume-high":FBTN "pavucontrol" \
   --field="Dock apps (one per line)!view-app-grid":FBTN "mousepad $HOME/.config/mingo/dock.list" \

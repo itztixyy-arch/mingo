@@ -1,0 +1,22 @@
+#!/bin/sh
+# Wallpaper picker (Settings > Wallpaper). Built-in wallpapers plus any picture of your own.
+WD=/usr/share/mingo/wallpapers
+set_wp() { pcmanfm --set-wallpaper="$1" --wallpaper-mode=crop; }
+
+if [ -n "$1" ] && [ -f "$1" ]; then set_wp "$1"; exit 0; fi
+
+rows=$(for f in "$WD"/*.png; do
+  [ -f "$f" ] || continue
+  n=${f##*/}; n=${n%.png}
+  printf '%s\n%s\n%s\n' "$WD/thumbs/$n.png" "$n" "$f"
+done)
+pick=$(printf '%s\n' "$rows" | yad --title="Wallpaper" --window-icon=preferences-desktop-wallpaper \
+  --center --width=420 --height=560 --borders=12 \
+  --list --no-headers --column=":IMG" --column="Name" --column="path:HD" --print-column=3 --separator= \
+  --button="Choose a picture...!folder-pictures:2" --button="Cancel!window-close:1" --button="Apply!emblem-ok-symbolic:0")
+case $? in
+  0) [ -n "$pick" ] && set_wp "$pick" ;;
+  2) f=$(yad --title="Choose a picture" --center --width=760 --height=520 --file \
+        --filename="$HOME/Pictures/" --file-filter="Pictures | *.png *.jpg *.jpeg *.webp *.bmp")
+     [ -n "$f" ] && [ -f "$f" ] && set_wp "$f" ;;
+esac

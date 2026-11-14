@@ -1,0 +1,50 @@
+#!/bin/sh
+# Mingo App Center: tick apps to install, untick to remove. Apps come from the Alpine Linux
+# package repositories and are saved to the USB stick with the rest of your changes.
+LIST='chromium|Chromium|Web browser from Google|chromium
+thunderbird|Thunderbird|Email|thunderbird
+libreoffice|LibreOffice|Documents, spreadsheets, slides (large)|libreoffice-startcenter
+gimp|GIMP|Photo and image editor|gimp
+inkscape|Inkscape|Vector drawing|org.inkscape.Inkscape
+vlc|VLC|Plays almost any video or music file|vlc
+celluloid|Celluloid|Simple video player|io.github.celluloid_player.Celluloid
+rhythmbox|Rhythmbox|Music library and player|org.gnome.Rhythmbox
+audacity|Audacity|Record and edit sound|audacity
+kdenlive|Kdenlive|Video editor (large)|kdenlive
+obs-studio|OBS Studio|Screen recording and streaming|com.obsproject.Studio
+evince|Document Viewer|PDF reader|org.gnome.Evince
+ristretto|Image Viewer|Look at pictures|org.xfce.ristretto
+galculator|Calculator|Calculator|accessories-calculator
+xarchiver|Archive Manager|Open and create zip files|xarchiver
+geany|Geany|Code editor|geany
+transmission-gtk|Transmission|Download torrents|transmission
+gparted|GParted|Manage disks and partitions|gparted
+git|Git|Version control (terminal)|git'
+
+installed=$(apk info 2>/dev/null)
+rows=$(printf '%s\n' "$LIST" | while IFS='|' read -r pkg name desc icon; do
+  if printf '%s\n' "$installed" | grep -qx "$pkg"; then on=TRUE; else on=FALSE; fi
+  printf '%s\n%s\n%s\n%s\n%s\n' "$on" "$icon" "$name" "$desc" "$pkg"
+done)
+
+out=$(printf '%s\n' "$rows" | yad --title="App Center" --window-icon=system-software-install \
+  --center --width=640 --height=620 --borders=12 \
+  --text="<span size='large'><b>App Center</b></span>\nTick the apps you want, untick to remove. Needs internet. Apps are saved to your USB stick." \
+  --list --checklist --column="" --column=":IMG" --column="App" --column="What it does" --column="pkg:HD" \
+  --print-column=5 --separator= \
+  --button="Cancel!window-close:1" --button="Apply!emblem-ok-symbolic:0") || exit 0
+
+add=; del=
+for pkg in $(printf '%s\n' "$LIST" | cut -d'|' -f1); do
+  want=0; printf '%s\n' "$out" | grep -qx "$pkg" && want=1
+  have=0; printf '%s\n' "$installed" | grep -qx "$pkg" && have=1
+  [ $want = 1 ] && [ $have = 0 ] && add="$add $pkg"
+  [ $want = 0 ] && [ $have = 1 ] && del="$del $pkg"
+done
+[ -z "$add$del" ] && exit 0
+
+cmd="echo 'Mingo App Center'; echo"
+[ -n "$del" ] && cmd="$cmd; echo 'Removing:$del'; apk del$del"
+[ -n "$add" ] && cmd="$cmd; echo 'Installing:$add'; apk add$add"
+cmd="$cmd; echo; echo 'Done. New apps are in the search (tap Super).'"
+mingo-term -e "mingo-hold sh -c \"$cmd\""

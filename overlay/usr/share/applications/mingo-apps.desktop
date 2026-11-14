@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=App Center
+Comment=Install and remove apps
+Exec=mingo-apps
+Icon=system-software-install
+Terminal=false

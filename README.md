@@ -20,32 +20,35 @@ stick. Booting from a disc is slower (about a minute and a half) and nothing is 
 read-only.
 
 ## Flash
-balenaEtcher, or Rufus in **DD Image** mode -> `out\mingo.iso`. **Erases the whole stick.**
-The stick then has two partitions: a small boot one, and `MINGO` (FAT32) with the files below.
+Write `out\mingo.iso` (from a release: unpack `mingo.iso.xz` with 7-Zip) to a 4 GB+ USB stick with
+balenaEtcher or Rufus. **Erases the whole stick.** Both Rufus modes work:
+- **DD Image** (and balenaEtcher): partition 1 = the system (read-only), partition 2 = `MINGO` (FAT32)
+  for your saved changes and installed updates.
+- **ISO Image**: one FAT32 partition with everything.
 
-## What is on the stick (FAT32, open it from Windows)
+## What is on the stick
 ```
 boot\                         kernel + small start-up image
 EFI\BOOT\                     UEFI loader
 mingo\system.sfs              the whole operating system (compressed, read-only)
 mingo\current-version.txt     number of the latest save
-mingo\full-version.txt        save number of the last full snapshot
+mingoull-version.txt        save number of the last full snapshot
 mingo\changes\changes-N.mingo one file per save (tar.gz of changed files + list of deleted files)
+mingo\debug.txt               boot report, only when booted with the mingodebug option
 ```
 
 ## Boot
-Fast: the BIOS only loads the kernel and a small start-up image; Linux then reads the system from
-the stick itself. Boot animation shows progress. It boots straight into the desktop
-(`mingo autodesktop off` boots to the terminal instead).
-Hold Shift while it starts (BIOS) and type: `toram` (copy the system to RAM) or `safe` (no graphics mode,
-no animation).
+Graphical boot screen (logo, progress bar, current step), text version where there is no graphics.
+Fast: the firmware only loads the kernel and a small start-up image; Linux then reads the system from
+the stick itself. It boots straight into the desktop (`mingo autodesktop off` boots to the terminal).
+Boot options (GRUB): `toram` (copy the system to RAM), `nosplash`, `mingodebug` (write a boot report to
+`mingo\debug.txt` on the stick).
 
 ## Troubleshooting
-If the screen stops at a black `grub>` prompt, GRUB could not find `boot/vmlinuz`. It now says so on screen
-and lists the disks it can see instead of dropping you at a bare prompt. The usual cause is that the ISO
-was written in Rufus **ISO Image** mode: that copies only the ISO's file system and loses the `MINGO`
-partition where the system lives. Reflash the stick with Rufus in **DD Image** mode, or with balenaEtcher.
-If the message says the boot files are missing, rewrite the stick.
+- Black `grub>` prompt: GRUB could not find `boot/vmlinuz`; it now says so and lists the disks it sees.
+  Rewrite the stick and let the writer finish.
+- If start-up cannot find the system, it stops with a message and the list of disks instead of
+  restarting the boot (that looked like a loading bar that loops), and opens a rescue shell.
 
 ## Your files
 Home folder is `/root` with `Desktop`, `Documents`, `Downloads`, `Pictures`, `Music`, `Videos` (like a Windows
@@ -65,8 +68,11 @@ red/yellow/green window buttons, soft shadows and open/close animations, notific
 - **Sound**: PipeWire; volume icon in the top bar (click for a slider), volume keys work.
 - Keys: Super+Enter terminal, Super+E files, Super+B browser, Super+I settings, Super+Esc power,
   Super+Up maximize, Super+Down minimize, Super+Q close, Print screenshot.
-- Settings window: terminal size, keyboard, time zone, desktop at boot, Wi-Fi, sound, dock apps,
-  save now, check for updates.
+- Settings window: terminal size, keyboard, time zone, desktop at boot, wallpaper, displays, App Center,
+  Wi-Fi, sound, dock apps, save now, check for updates.
+- **App Center**: tick apps to install (Chromium, Thunderbird, LibreOffice, GIMP, VLC, OBS, ...); they are
+  saved to the stick. **Wallpapers**: six built in, or any picture of your own.
+- Brightness and media keys (play/pause/next/previous) work.
 
 ## Terminal
 bash with colored prompt (shows last exit code), persistent history, completion, aliases (`ll`, `la`, `..`,

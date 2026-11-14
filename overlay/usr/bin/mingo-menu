@@ -4,6 +4,7 @@ pkill -x rofi && exit 0
 c=$(printf '%s\0icon\037%s\n' \
   "About Mingo" help-about \
   "Settings" preferences-system \
+  "App Center" system-software-install \
   "Check for Updates" system-software-update \
   "Save Changes Now" document-save \
   "Files" system-file-manager \
@@ -15,6 +16,7 @@ c=$(printf '%s\0icon\037%s\n' \
 case "$c" in
   "About Mingo") mingo-term -e "mingo-hold fastfetch" ;;
   "Settings") mingo-settings ;;
+  "App Center") mingo-apps ;;
   "Check for Updates") mingo-term -e "mingo-hold mingo-update" ;;
   "Save Changes Now") mingo-term -e "mingo-hold mingo-save" ;;
   "Files") pcmanfm "$HOME" ;;

@@ -4,17 +4,27 @@
 set -euo pipefail
 R=$1
 
-echo "  wallpaper"
-mkdir -p "$R/usr/share/mingo"
-WP="$R/usr/share/mingo/wallpaper.png"
+echo "  wallpapers"
+WD="$R/usr/share/mingo/wallpapers"
+mkdir -p "$WD/thumbs"
 # soft colour blobs, heavily blurred (drawn small, then scaled up: fast and smooth)
-convert -size 480x270 xc:'#0b1026' \
-  -fill '#1d4ed8' -draw 'circle 60,40 60,-90' \
-  -fill '#5b2bbf' -draw 'circle 150,230 150,80' \
-  -fill '#0e7490' -draw 'circle 400,70 400,-60' \
-  -fill '#be3a7c' -draw 'circle 330,270 330,170' \
-  -fill '#f59e0b' -draw 'circle 470,250 470,215' \
-  -blur 0x48 -resize '1920x1080!' -modulate 100,115 "$WP"
+blobs() { # name base-colour "x y radius colour" ...
+  local name=$1 base=$2 x y r col; shift 2
+  local args=(-size 480x270 "xc:$base")
+  for spec in "$@"; do
+    read -r x y r col <<<"$spec"
+    args+=(-fill "$col" -draw "circle $x,$y $x,$(( y - r ))")
+  done
+  convert "${args[@]}" -blur 0x48 -resize '1920x1080!' -modulate 100,115 "$WD/$name.png"
+  convert "$WD/$name.png" -resize 240x135 "$WD/thumbs/$name.png"
+}
+blobs Aurora   '#0b1026' '60 40 130 #1d4ed8' '150 230 150 #5b2bbf' '400 70 130 #0e7490' '330 270 100 #be3a7c' '470 250 35 #f59e0b'
+blobs Ocean    '#03111f' '80 220 140 #0369a1' '300 60 120 #0f766e' '440 230 110 #1e3a8a' '230 160 60 #22d3ee'
+blobs Sunset   '#1a0b1e' '90 220 150 #c2410c' '260 60 120 #be185d' '430 200 130 #7c3aed' '300 250 60 #f59e0b'
+blobs Forest   '#06140f' '70 60 130 #166534' '260 240 140 #0f766e' '440 90 110 #3f6212' '380 260 60 #14b8a6'
+blobs Midnight '#05060d' '100 100 140 #1e1b4b' '380 200 150 #312e81' '260 30 70 #4c1d95'
+blobs Graphite '#111317' '120 200 160 #2a2f38' '400 80 140 #3a3f4a' '300 250 80 #1f2937'
+cp "$WD/Aurora.png" "$R/usr/share/mingo/wallpaper.png"
 
 echo "  openbox theme"
 T="$R/usr/share/themes/Mingo/openbox-3"
@@ -130,6 +140,9 @@ KEYS+=$(x Print mingo-shot)$(x W-space mingo-search)$(x W-d mingo-search)$(x A-F
 KEYS+=$(x XF86AudioRaiseVolume 'mingo-volume up')$(x XF86AudioLowerVolume 'mingo-volume down')$(x XF86AudioMute 'mingo-volume mute')
 KEYS+='<keybind key="W-Up"><action name="ToggleMaximize"/></keybind><keybind key="W-Down"><action name="Iconify"/></keybind>'
 KEYS+='<keybind key="W-q"><action name="Close"/></keybind>'
+KEYS+=$(x XF86MonBrightnessUp 'mingo-brightness up')$(x XF86MonBrightnessDown 'mingo-brightness down')
+KEYS+=$(x XF86AudioPlay 'playerctl play-pause')$(x XF86AudioPause 'playerctl pause')
+KEYS+=$(x XF86AudioNext 'playerctl next')$(x XF86AudioPrev 'playerctl previous')$(x XF86AudioStop 'playerctl stop')
 # Apple-style title bar: close, minimize, zoom on the left, centered title, Inter font
 sed -e '/<keybind key="W-e">/,/<\/keybind>/d' \
     -e 's|<name>Clearlooks</name>|<name>Mingo</name>|' \

@@ -1,0 +1,12 @@
+#!/bin/sh
+# mingo-brightness up|down   (laptop brightness keys)
+case "$1" in
+  up) brightnessctl -q set 5%+ ;;
+  down) brightnessctl -q set 5%- ;;
+  *) echo "usage: mingo-brightness up|down" >&2; exit 1 ;;
+esac
+cur=$(brightnessctl get 2>/dev/null); max=$(brightnessctl max 2>/dev/null)
+[ -n "$cur" ] && [ "${max:-0}" -gt 0 ] || exit 0
+pct=$((cur * 100 / max))
+notify-send -a mingo-brightness -i display-brightness -h string:x-dunst-stack-tag:brightness \
+  -h int:value:$pct "Brightness" "$pct%" 2>/dev/null
