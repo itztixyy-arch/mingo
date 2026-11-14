@@ -173,27 +173,56 @@ SFS_MB=$(( $(stat -c %s system.sfs) / 1048576 + 1 ))
 echo "  system.sfs: ${SFS_MB} MB"
 
 echo "== boot loader (GRUB, BIOS + UEFI)"
+# The config is stored in three places so it is found however the firmware boots us:
+#   - built into both loaders (bios.img and BOOTX64.EFI)
+#   - as /boot/grub/grub.cfg on the MINGO partition (some firmware boots the FAT
+#     partition directly instead of the ISO's El Torito entry)
+#   - as /boot/grub/grub.cfg on the ISO itself
+# Keep it a flat list of commands: the config the GRUB core runs at start-up is
+# executed line by line, where if/then/fi do not exist yet ("Unknown command if").
+# The message after `boot` is only reached when the boot failed, so the user
+# never gets a bare "grub>" prompt without being told what is wrong.
 cat > grub.cfg <<'EOF'
 set timeout=0
 set timeout_style=hidden
 insmod all_video
+insmod part_msdos
+insmod part_gpt
+insmod fat
+insmod search_fs_file
+
+# The MINGO partition is the one holding mingo/system.sfs.
 search --no-floppy --file --set=root /mingo/system.sfs
 linux /boot/vmlinuz quiet loglevel=3 vt.global_cursor_default=0
 initrd /boot/initramfs.gz
 boot
+
+echo
+echo "MINGO: could not boot from this stick."
+echo "Either mingo/system.sfs is missing, or the stick is damaged."
+echo "If Rufus asked, use DD Image mode - ISO Image mode drops the MINGO"
+echo "partition, which is where the system lives. Or use balenaEtcher."
+echo
+echo "Disks GRUB can see:"
+ls
+echo
+echo "Press any key to continue to the GRUB prompt."
+sleep 60
 EOF
-GRUB_MODS="part_msdos part_gpt fat iso9660 search search_fs_file normal linux echo configfile all_video"
+GRUB_MODS="part_msdos part_gpt fat iso9660 search search_fs_file normal linux echo configfile all_video sleep"
 grub-mkstandalone -O x86_64-efi -o BOOTX64.EFI --modules="$GRUB_MODS" "boot/grub/grub.cfg=grub.cfg"
 # BIOS: small core image with the config built in (a standalone image is too big for El Torito)
-grep -v -e '^insmod all_video' -e timeout grub.cfg > grub-bios.cfg
-grub-mkimage -O i386-pc-eltorito -o bios.img -p /boot/grub -c grub-bios.cfg   biosdisk part_msdos part_gpt fat iso9660 search search_fs_file linux normal echo
+grep -v -e '^insmod all_video' -e '^set timeout' grub.cfg > grub-bios.cfg
+grub-mkimage -O i386-pc-eltorito -o bios.img -p /boot/grub -c grub-bios.cfg \
+  biosdisk part_msdos part_gpt fat iso9660 search search_fs_file linux normal echo sleep
 
 DATA_MB=$(( SFS_MB + 64 + FREE_MB ))
 echo "== MINGO data partition ($DATA_MB MB)"
 rm -f data.img; truncate -s ${DATA_MB}M data.img
 mkfs.vfat -F 32 -n MINGO data.img >/dev/null
-mmd   -i data.img ::/boot ::/EFI ::/EFI/BOOT ::/mingo ::/mingo/changes
+mmd   -i data.img ::/boot ::/boot/grub ::/EFI ::/EFI/BOOT ::/mingo ::/mingo/changes
 mcopy -i data.img vmlinuz initramfs.gz ::/boot/
+mcopy -i data.img grub.cfg ::/boot/grub/grub.cfg
 mcopy -i data.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
 mcopy -i data.img system.sfs ::/mingo/system.sfs
 echo 0 > current-version.txt
@@ -203,6 +232,7 @@ mcopy -i data.img current-version.txt ::/mingo/full-version.txt
 echo "== hybrid ISO"
 rm -rf isoroot; mkdir -p isoroot/boot/grub
 cp bios.img isoroot/boot/grub/bios.img
+cp grub.cfg isoroot/boot/grub/grub.cfg
 truncate -s $(( $(stat -c %s BOOTX64.EFI) / 1048576 + 3 ))M isoroot/boot/grub/efi.img && mkfs.vfat -n MINGO_EFI isoroot/boot/grub/efi.img >/dev/null
 mmd -i isoroot/boot/grub/efi.img ::/EFI ::/EFI/BOOT
 mcopy -i isoroot/boot/grub/efi.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI

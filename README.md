@@ -37,6 +37,13 @@ the stick itself. Boot animation shows progress. It boots straight into the desk
 Hold Shift while it starts (BIOS) and type: `toram` (copy the system to RAM) or `safe` (no graphics mode,
 no animation).
 
+## Troubleshooting
+If the screen stops at a black `grub>` prompt, the boot loader could not find `mingo/system.sfs`. It now
+says so on screen and lists the disks it can see instead of dropping you at a bare prompt. The usual cause
+is that the ISO was written in Rufus **ISO Image** mode: that copies only the ISO's file system and loses
+the `MINGO` partition where the system lives. Reflash the stick with Rufus in **DD Image** mode, or with
+balenaEtcher. If the message says the stick is damaged, rewrite it.
+
 ## Your files
 Home folder is `/root` with `Desktop`, `Documents`, `Downloads`, `Pictures`, `Music`, `Videos` (like a Windows
 user folder). Everything you change anywhere is saved: at shutdown/reboot, every 3 minutes, or with `mingo save`.
