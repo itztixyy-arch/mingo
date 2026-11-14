@@ -1,4 +1,4 @@
-# Mingo 0.4
+# Mingo
 
 Linux that lives on a USB stick: plug in, boot, use, and your changes are saved back to the stick.
 BIOS + UEFI (Secure Boot off). Based on Alpine Linux (latest stable), runs from a compressed system file
@@ -48,12 +48,22 @@ Openbox + tint2 dock + pcmanfm desktop icons + conky widget, dark theme, Papirus
 - Right-click desktop: menu. Middle-click: window list. Left-click: select icons.
 - Keys: Super+Enter terminal, Super+E files, Super+B browser, Super+I settings, Super+D / Alt+F2 run,
   Super+Esc power, Super+Space menu, Print screenshot (to ~/Pictures), Alt+F4 close.
-- Settings: terminal size, keyboard layout, time zone, desktop on boot, save now / full snapshot.
+- Settings window: terminal size, keyboard layout, time zone, desktop at boot, save now, check for updates.
 
 ## Terminal
 bash with colored prompt (shows last exit code), persistent history, completion, aliases (`ll`, `la`, `..`,
 `mkcd`, `extract`), nano, mc, htop, tmux, curl, wget, ssh, fastfetch, jq. `mingo help` lists system commands.
 `tsize 60` makes terminal windows 60% of the screen (default 40).
+
+## Updates
+Mingo updates itself from this repo's GitHub releases. On the desktop it offers new versions
+automatically; or use Settings > Check for updates, or `mingo update` in a terminal. The new system is
+downloaded to `mingo/update/` on the stick, checked, and installed at the next restart (one extra
+automatic restart). Saved files and settings are kept.
+
+Release a new version: bump `VERSION`, commit, then `git tag vX.Y.Z && git push origin main --tags`.
+GitHub Actions builds it (about 15 min) and publishes the release: `mingo.img.xz` for flashing, plus
+`system.sfs`, `vmlinuz`, `initramfs.gz`, `SHA256SUMS` for the updater.
 
 ## Not included
 Wi-Fi, sound, GPU firmware (graphics use the generic driver).
