@@ -191,15 +191,16 @@ insmod part_gpt
 insmod fat
 insmod search_fs_file
 
-# The MINGO partition is the one holding mingo/system.sfs.
-search --no-floppy --file --set=root /mingo/system.sfs
+# Look for the kernel, not the system file: a CD/DVD cannot read the appended FAT
+# partition, but the kernel is also on the ISO file system, which GRUB can read.
+search --no-floppy --file --set=root /boot/vmlinuz
 linux /boot/vmlinuz quiet loglevel=3 vt.global_cursor_default=0
 initrd /boot/initramfs.gz
 boot
 
 echo
-echo "MINGO: could not boot from this stick."
-echo "Either mingo/system.sfs is missing, or the stick is damaged."
+echo "MINGO: could not start Mingo from this stick."
+echo "The boot files are missing or the stick was written incompletely."
 echo "If Rufus asked, use DD Image mode - ISO Image mode drops the MINGO"
 echo "partition, which is where the system lives. Or use balenaEtcher."
 echo
@@ -207,7 +208,7 @@ echo "Disks GRUB can see:"
 ls
 echo
 echo "Press any key to continue to the GRUB prompt."
-sleep 60
+sleep --interruptible 60
 EOF
 GRUB_MODS="part_msdos part_gpt fat iso9660 search search_fs_file normal linux echo configfile all_video sleep"
 grub-mkstandalone -O x86_64-efi -o BOOTX64.EFI --modules="$GRUB_MODS" "boot/grub/grub.cfg=grub.cfg"
@@ -233,6 +234,9 @@ echo "== hybrid ISO"
 rm -rf isoroot; mkdir -p isoroot/boot/grub
 cp bios.img isoroot/boot/grub/bios.img
 cp grub.cfg isoroot/boot/grub/grub.cfg
+# kernel + start-up image in the ISO file system as well: a CD/DVD cannot read the
+# appended FAT partition, so GRUB has to load them from here when booted as a disc
+cp vmlinuz initramfs.gz isoroot/boot/
 truncate -s $(( $(stat -c %s BOOTX64.EFI) / 1048576 + 3 ))M isoroot/boot/grub/efi.img && mkfs.vfat -n MINGO_EFI isoroot/boot/grub/efi.img >/dev/null
 mmd -i isoroot/boot/grub/efi.img ::/EFI ::/EFI/BOOT
 mcopy -i isoroot/boot/grub/efi.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI

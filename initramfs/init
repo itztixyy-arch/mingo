@@ -34,6 +34,33 @@ for m in $(cat /etc/mingo-modules); do modprobe -q "$m" 2>/dev/null; done
 stage "finding the Mingo drive"
 mkdir -p /media/mingo /lower /rw /newroot
 found=
+
+# The data partition is appended to the ISO image after the ISO file system. A CD/DVD
+# reports 2048-byte sectors, so neither GRUB nor the kernel can read it as a normal
+# partition: mount it through a loop device at the byte offset taken from the ISO's
+# own partition table. This is what lets the ISO be booted directly in a VM as a disc.
+cd_find() {
+  dev=$1
+  mount -t iso9660 -o ro "$dev" /media/mingo 2>/dev/null || return 1
+  if [ -f /media/mingo/mingo/system.sfs ]; then found=$dev; return 0; fi
+  umount /media/mingo
+  p=446
+  while [ $p -le 494 ]; do
+    t=$(od -An -tu1 -j $((p + 4)) -N 1 "$dev" 2>/dev/null | tr -d ' \n')
+    lba=$(od -An -tu4 -j $((p + 8)) -N 4 "$dev" 2>/dev/null | tr -d ' \n')
+    if [ -n "$t" ] && [ "$t" != 0 ] && [ -n "$lba" ] &&
+       losetup -r -o $((lba * 512)) /dev/loop0 "$dev" 2>/dev/null; then
+      if mount -t vfat -o ro /dev/loop0 /media/mingo 2>/dev/null; then
+        if [ -f /media/mingo/mingo/system.sfs ]; then found=/dev/loop0; return 0; fi
+        umount /media/mingo
+      fi
+      losetup -d /dev/loop0 2>/dev/null
+    fi
+    p=$((p + 16))
+  done
+  return 1
+}
+
 i=0
 while [ $i -lt 40 ]; do
   for d in /dev/sd[a-z][0-9]* /dev/vd[a-z][0-9]* /dev/nvme*n*p[0-9]* /dev/mmcblk*p[0-9]*; do
@@ -46,7 +73,13 @@ while [ $i -lt 40 ]; do
   sleep 0.5
   i=$((i + 1))
 done
-[ -n "$found" ] || rescue "the Mingo USB drive was not found"
+if [ -z "$found" ]; then
+  for d in /dev/sr[0-9]*; do
+    [ -b "$d" ] || continue
+    cd_find "$d" && break
+  done
+fi
+[ -n "$found" ] || rescue "the Mingo drive was not found"
 echo "$found" > /run/mingo.dev
 
 # install a downloaded update (mingo-update put it in mingo/update/), then restart into it
