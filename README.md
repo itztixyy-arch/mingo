@@ -5,7 +5,9 @@ BIOS + UEFI (Secure Boot off). Based on Alpine Linux (latest stable), runs from 
 with a RAM layer on top. Wi-Fi, sound, a macOS-style desktop. Needs 2 GB+ RAM and a 4 GB+ USB stick.
 
 ## Build
-`wsl -d Ubuntu -u root -- bash /mnt/d/PythonAndStuff/Minigo/build.sh` -> `out\mingo.iso`
+Double-click **`build.bat`** (or run it in a terminal) -> `out\mingo.iso`. Needs WSL with Ubuntu, a
+one-time setup: `wsl --install -d Ubuntu` in an admin PowerShell. Takes about 10 minutes and downloads
+about 1 GB. `build.bat check` only tests that WSL is ready.
 
 ## Test VM (QEMU in WSL, window via WSLg)
 ```
