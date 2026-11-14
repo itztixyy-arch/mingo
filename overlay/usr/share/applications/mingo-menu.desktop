@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Mingo
+Comment=About, settings, updates, power
+Exec=mingo-menu
+Icon=start-here
+Terminal=false
+NoDisplay=true

@@ -1,0 +1,83 @@
+#!/bin/sh
+# rofi script mode for mingo-search: lists items, then runs the one picked.
+run() { setsid -f "$@" >/dev/null 2>&1; }
+row() { printf '%s\0icon\037%s\037info\037%s\037meta\037%s\n' "$1" "$2" "$3" "$4"; }
+
+case "${ROFI_RETV:-0}" in
+  1|10)   # 1 = Enter, 10 = Alt+P (keep in dock)
+    kind=${ROFI_INFO%%:*}; val=${ROFI_INFO#*:}
+    if [ "${ROFI_RETV}" = 10 ]; then
+      if [ "$kind" = app ]; then
+        f=$HOME/.config/mingo/dock.list
+        mkdir -p "${f%/*}"; grep -qx "$val" "$f" 2>/dev/null || echo "$val" >> "$f"
+        run notify-send -i "${val%.desktop}" "Added to the dock" "$1"
+      fi
+      exit 0
+    fi
+    case $kind in
+      app)  run gtk-launch "$val" ;;
+      dir)  run pcmanfm "$val" ;;
+      file) run xdg-open "$val" ;;
+      cmd)  run sh -c "$val" ;;
+    esac
+    exit 0 ;;
+  2)      # typed text that matched nothing: search the web
+    [ -n "$1" ] && run firefox-esr "https://duckduckgo.com/?q=$(printf '%s' "$1" | sed 's/ /+/g')"
+    exit 0 ;;
+esac
+
+printf '\0prompt\037Search\n'
+printf '\0message\037Enter: open   Alt+P: keep app in dock   no match: search the web\n'
+printf '\0no-custom\037false\n'
+
+# apps
+gawk -F= '
+  FNR == 1 { if (ok) out(); name = icon = kw = ""; nd = 0; ok = 0; sec = 0; id = FILENAME; sub(".*/", "", id) }
+  /^\[/ { sec = ($0 == "[Desktop Entry]") }
+  sec && $1 == "Name" && name == "" { name = substr($0, 6) }
+  sec && $1 == "Icon" { icon = $2 }
+  sec && $1 == "Keywords" { kw = $2 }
+  sec && $1 == "Type" && $2 == "Application" { ok = 1 }
+  sec && ($1 == "NoDisplay" || $1 == "Hidden") && $2 == "true" { nd = 1 }
+  function out() { if (!nd && name != "") printf "%s\0icon\037%s\037info\037app:%s\037meta\037app %s %s\n", name, icon, id, kw, id }
+  END { if (ok) out() }
+' /usr/share/applications/*.desktop 2>/dev/null | sort -t "$(printf '\t')" -u
+
+# settings
+row "Settings"                 preferences-system        "cmd:mingo-settings"   "settings preferences control panel"
+row "Wi-Fi"                    network-wireless          "cmd:command -v nm-connection-editor >/dev/null && nm-connection-editor || mingo-term -e nmtui" "wifi wireless network internet"
+row "Sound"                    audio-volume-high         "cmd:pavucontrol"      "sound audio volume speaker microphone"
+row "Keyboard layout"          input-keyboard            "cmd:mingo-settings"   "keyboard layout language settings"
+row "Time zone"                preferences-system-time   "cmd:mingo-settings"   "time zone clock date settings"
+row "Terminal size"            utilities-terminal        "cmd:mingo-settings"   "terminal size tsize settings"
+row "Check for updates"        system-software-update    "cmd:mingo-term -e 'mingo-hold mingo-update'" "update upgrade software"
+row "Save changes now"         document-save             "cmd:mingo-term -e 'mingo-hold mingo-save'"   "save backup usb"
+row "About this computer"      help-about                "cmd:mingo-term -e 'mingo-hold fastfetch'"    "about system info version"
+# places
+row "Home"                     user-home                 "dir:$HOME"            "folder home files"
+for d in Desktop Documents Downloads Pictures Music Videos; do
+  icon=folder-$(echo "$d" | tr 'A-Z' 'a-z'); [ "$d" = Downloads ] && icon=folder-download
+  row "$d" "$icon" "dir:$HOME/$d" "folder"
+done
+row "Mingo USB drive"          drive-removable-media-usb "dir:/mnt/mingo"       "usb drive stick folder"
+# actions
+row "Screenshot"               applets-screenshooter     "cmd:sleep 0.4; mingo-shot" "screenshot capture print"
+row "Restart"                  system-reboot             "cmd:reboot"           "restart reboot power"
+row "Shut down"                system-shutdown           "cmd:shutdown"         "shut down power off"
+row "Exit desktop"             system-log-out            "cmd:openbox --exit"   "log out exit logout"
+# files and folders in your home folder (hidden ones skipped)
+find "$HOME" -mindepth 1 -maxdepth 6 \( -name '.*' -prune \) -o ! -name '*.desktop' -print 2>/dev/null | head -4000 | while IFS= read -r p; do
+  n=${p##*/}; where=${p%/*}; where=${where#"$HOME"}; where="~$where"
+  if [ -d "$p" ]; then row "$n   $where" folder "dir:$p" "folder"; continue; fi
+  case $(echo "$n" | tr 'A-Z' 'a-z') in
+    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.bmp|*.svg) i=image-x-generic ;;
+    *.mp3|*.ogg|*.flac|*.wav|*.m4a) i=audio-x-generic ;;
+    *.mp4|*.mkv|*.webm|*.avi|*.mov) i=video-x-generic ;;
+    *.pdf) i=application-pdf ;;
+    *.zip|*.tar|*.gz|*.xz|*.7z) i=package-x-generic ;;
+    *.sh) i=text-x-script ;;
+    *.desktop) i=application-x-desktop ;;
+    *) i=text-x-generic ;;
+  esac
+  row "$n   $where" "$i" "file:$p" "file"
+done

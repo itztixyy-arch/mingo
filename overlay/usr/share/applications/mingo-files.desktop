@@ -5,3 +5,4 @@ Comment=Browse your files
 Exec=pcmanfm /root
 Icon=system-file-manager
 Terminal=false
+StartupWMClass=pcmanfm

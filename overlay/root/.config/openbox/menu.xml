@@ -5,7 +5,7 @@
   <item label="Files"><action name="Execute"><command>pcmanfm /root</command></action></item>
   <item label="Web Browser"><action name="Execute"><command>firefox-esr</command></action></item>
   <item label="Text Editor"><action name="Execute"><command>mousepad</command></action></item>
-  <item label="Run..."><action name="Execute"><command>mingo-run</command></action></item>
+  <item label="Search..."><action name="Execute"><command>mingo-search</command></action></item>
   <menu id="tools-menu" label="Tools">
     <item label="System Monitor (htop)"><action name="Execute"><command>mingo-term -e htop</command></action></item>
     <item label="Terminal File Manager (mc)"><action name="Execute"><command>mingo-term -e mc</command></action></item>
@@ -17,6 +17,8 @@
   <menu id="client-list-menu"/>
   <separator/>
   <item label="Settings"><action name="Execute"><command>mingo-settings</command></action></item>
+  <item label="Wi-Fi"><action name="Execute"><command>mingo-term -e nmtui</command></action></item>
+  <item label="Sound"><action name="Execute"><command>pavucontrol</command></action></item>
   <item label="Save Changes Now"><action name="Execute"><command>mingo-term -e "mingo-hold mingo-save"</command></action></item>
   <item label="Power..."><action name="Execute"><command>mingo-power</command></action></item>
 </menu>

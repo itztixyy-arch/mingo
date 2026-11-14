@@ -29,11 +29,10 @@ jobs:
       - name: Build image
         run: sudo MINGO_REPO="$GITHUB_REPOSITORY" bash build.sh
 
-      - name: Compress flashable image
+      - name: Collect release files
         run: |
-          sudo xz -T0 -6 -k out/mingo.img
-          sudo mv out/mingo.img.xz out/release/
-          cd out/release && sudo sh -c 'sha256sum vmlinuz initramfs.gz system.sfs mingo.img.xz > SHA256SUMS'
+          sudo mv out/mingo.iso out/release/
+          cd out/release && sudo sh -c 'sha256sum vmlinuz initramfs.gz system.sfs mingo.iso > SHA256SUMS'
           ls -lh
 
       - name: Upload build (manual runs)

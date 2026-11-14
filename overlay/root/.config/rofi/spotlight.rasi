@@ -1,0 +1,39 @@
+/* Mingo search: Spotlight-style, centered */
+* {
+  font: "Inter 12";
+  bg: #1d2129f2;
+  bg-alt: #ffffff0d;
+  fg: #e8edf3;
+  fg-dim: #8b97a6;
+  accent: #3b82f6;
+  background-color: transparent;
+  text-color: @fg;
+}
+window {
+  location: north;
+  y-offset: 160px;
+  width: 680px;
+  background-color: @bg;
+  border: 1px;
+  border-color: #ffffff1f;
+  border-radius: 16px;
+}
+mainbox { padding: 10px; spacing: 6px; children: [ inputbar, message, listview ]; }
+inputbar {
+  padding: 12px 14px;
+  spacing: 12px;
+  border-radius: 11px;
+  background-color: @bg-alt;
+  children: [ icon-search, entry ];
+}
+icon-search { expand: false; filename: "system-search"; size: 24px; vertical-align: 0.5; }
+entry { placeholder: "Search apps, files, settings"; placeholder-color: @fg-dim; font: "Inter 17"; vertical-align: 0.5; }
+message { padding: 2px 8px; border: 0; }
+textbox { text-color: @fg-dim; font: "Inter 9"; }
+listview { lines: 8; columns: 1; fixed-height: false; dynamic: true; scrollbar: false; spacing: 2px; }
+element { padding: 8px 10px; spacing: 12px; border-radius: 9px; }
+element normal.normal, element alternate.normal { background-color: transparent; }
+element selected.normal { background-color: @accent; }
+element-icon { size: 28px; vertical-align: 0.5; }
+element-text { vertical-align: 0.5; highlight: bold; }
+element selected.normal element-text { text-color: #ffffff; }

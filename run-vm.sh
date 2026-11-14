@@ -15,10 +15,10 @@ for a in "$@"; do case $a in reset) reset=1;; uefi) uefi=1;; debug) debug=1;; sh
 command -v qemu-system-x86_64 >/dev/null || $SUDO apt-get install -y -qq qemu-system-x86 qemu-system-gui ovmf mtools
 [ "$reset" = 1 ] && rm -f "$DISK"
 # VM disk older than the latest build -> recreate it (saved VM changes are dropped)
-if [ -f "$DISK" ] && [ "$D/out/mingo.img" -nt "$DISK" ]; then
+if [ -f "$DISK" ] && [ "$D/out/mingo.iso" -nt "$DISK" ]; then
   echo "run-vm: new build found, updating VM disk (old saved changes dropped)"; rm -f "$DISK"
 fi
-[ -f "$DISK" ] || cp "$D/out/mingo.img" "$DISK"
+[ -f "$DISK" ] || cp "$D/out/mingo.iso" "$DISK"
 
 if [ "$show" = 1 ]; then
   export MTOOLS_SKIP_CHECK=1
@@ -28,7 +28,7 @@ if [ "$show" = 1 ]; then
 fi
 
 # no network boot ROM (removes the iPXE delay), disk boots first
-ARGS=(-name Mingo-VM -m 3G -smp 2 -usb -device usb-tablet -drive file="$DISK",format=raw
+ARGS=(-name Mingo-VM -m 3G -smp 2 -usb -device usb-tablet -drive file="$DISK",format=raw -device intel-hda -audiodev pa,id=snd0 -device hda-duplex,audiodev=snd0
       -netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile= -boot order=c,menu=off)
 [ -e /dev/kvm ] && ARGS+=(-enable-kvm -cpu host)
 [ "$uefi" = 1 ] && ARGS+=(-bios /usr/share/ovmf/OVMF.fd)

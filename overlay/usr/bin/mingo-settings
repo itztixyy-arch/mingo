@@ -21,6 +21,9 @@ out=$(yad --title="Mingo Settings" --window-icon=preferences-system --image=pref
   --field="Time zone":CB "$tzl" \
   --field="Start the desktop when Mingo boots":CHK "$ad" \
   --field=" ":LBL "" \
+  --field="Wi-Fi networks!network-wireless":FBTN "mingo-term -e nmtui" \
+  --field="Sound!audio-volume-high":FBTN "pavucontrol" \
+  --field="Dock apps (one per line)!view-app-grid":FBTN "mousepad $HOME/.config/mingo/dock.list" \
   --field="Save changes now!document-save":FBTN "mingo-term -e 'mingo-hold mingo-save'" \
   --field="Check for updates!system-software-update":FBTN "mingo-term -e 'mingo-hold mingo-update'" \
   --field="About this computer!help-about":FBTN "mingo-term -e 'mingo-hold fastfetch'" \

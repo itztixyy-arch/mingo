@@ -1,108 +1,81 @@
-# Mingo dock: floating rounded bar, bottom center
-# Backgrounds: 1 panel, 2 task, 3 active task, 4 launcher icon hover, 5 clock
-rounded = 14
-border_width = 1
-border_sides = TBLR
-background_color = #0e1822 92
-border_color = #2a4157 100
-background_color_hover = #0e1822 92
-border_color_hover = #2a4157 100
-background_color_pressed = #0e1822 92
-border_color_pressed = #2a4157 100
+# Mingo top bar: logo menu (left), status icons + clock (right)
+# Backgrounds: 1 bar, 2 logo hover, 3 clock
+rounded = 0
+border_width = 0
+border_sides = B
+background_color = #0f131a 78
+border_color = #ffffff 10
+background_color_hover = #0f131a 78
+border_color_hover = #ffffff 10
+background_color_pressed = #0f131a 78
+border_color_pressed = #ffffff 10
 
-rounded = 9
+rounded = 6
 border_width = 0
 border_sides = TBLR
 background_color = #ffffff 0
 border_color = #000000 0
-background_color_hover = #ffffff 12
+background_color_hover = #ffffff 16
+border_color_hover = #000000 0
+background_color_pressed = #ffffff 26
+border_color_pressed = #000000 0
+
+rounded = 6
+border_width = 0
+border_sides = TBLR
+background_color = #ffffff 0
+border_color = #000000 0
+background_color_hover = #ffffff 14
 border_color_hover = #000000 0
 background_color_pressed = #ffffff 22
 border_color_pressed = #000000 0
 
-rounded = 9
-border_width = 1
-border_sides = TBLR
-background_color = #3b6ea5 70
-border_color = #5aa9e6 90
-background_color_hover = #4a7fb8 80
-border_color_hover = #5aa9e6 100
-background_color_pressed = #4a7fb8 90
-border_color_pressed = #5aa9e6 100
-
-rounded = 9
-border_width = 0
-border_sides = TBLR
-background_color = #ffffff 0
-border_color = #000000 0
-background_color_hover = #ffffff 18
-border_color_hover = #000000 0
-background_color_pressed = #ffffff 30
-border_color_pressed = #000000 0
-
-rounded = 9
-border_width = 0
-border_sides = TBLR
-background_color = #ffffff 8
-border_color = #000000 0
-background_color_hover = #ffffff 14
-border_color_hover = #000000 0
-background_color_pressed = #ffffff 14
-border_color_pressed = #000000 0
-
 # Panel
 panel_monitor = all
-panel_position = bottom center horizontal
-panel_size = 80% 54
-panel_margin = 0 12
-panel_padding = 12 7 12
+panel_position = top center horizontal
+panel_size = 100% 30
+panel_margin = 0 0
+panel_padding = 8 2 10
 panel_background_id = 1
+panel_layer = top
+strut_policy = follow_size
 wm_menu = 1
-panel_items = LTSC
+panel_items = LFSBC
+font_shadow = 0
 
-# Launcher (apps are .desktop files in /usr/share/applications)
-launcher_padding = 2 0 8
+# Logo menu
+launcher_padding = 2 0 2
 launcher_background_id = 0
-launcher_icon_background_id = 4
-launcher_icon_size = 34
+launcher_icon_background_id = 2
+launcher_icon_size = 20
 launcher_icon_theme = Papirus-Dark
 launcher_icon_theme_override = 0
-launcher_icon_asb = 100 0 0
 launcher_tooltip = 1
-startup_notifications = 1
-launcher_item_app = /usr/share/applications/mingo-terminal.desktop
-launcher_item_app = /usr/share/applications/mingo-files.desktop
-launcher_item_app = /usr/share/applications/mingo-browser.desktop
-launcher_item_app = /usr/share/applications/mingo-editor.desktop
-launcher_item_app = /usr/share/applications/mingo-monitor.desktop
-launcher_item_app = /usr/share/applications/mingo-settings.desktop
-launcher_item_app = /usr/share/applications/mingo-power.desktop
+launcher_item_app = /usr/share/applications/mingo-menu.desktop
+launcher_item_app = /usr/share/applications/mingo-search.desktop
 
-# Taskbar
-taskbar_mode = single_desktop
-taskbar_padding = 4 0 4
-taskbar_background_id = 0
-task_text = 1
-task_icon = 1
-task_centered = 0
-task_maximum_size = 210 40
-task_padding = 8 6 8
-task_font = DejaVu Sans 10
-task_font_color = #c9d6e2 100
-task_active_font_color = #ffffff 100
-task_icon_asb = 100 0 0
-task_active_icon_asb = 100 0 0
-task_background_id = 2
-task_active_background_id = 3
-
-# Clock + tray
-time1_format = %H:%M
-time2_format = %a %d %b
-time1_font = DejaVu Sans Bold 11
-time2_font = DejaVu Sans 8
-clock_font_color = #e6eef7 100
-clock_padding = 12 4
-clock_background_id = 5
-systray_padding = 6 2 6
-systray_icon_size = 22
+# Status icons (Wi-Fi, volume)
+systray_padding = 6 0 8
 systray_background_id = 0
+systray_icon_size = 18
+systray_icon_asb = 100 0 0
+systray_sort = right2left
+
+# Battery (laptops)
+battery_low_status = 15
+battery_hide = 101
+bat1_font = Inter Medium 10
+bat2_font = Inter 8
+battery_font_color = #e8edf3 100
+battery_padding = 6 0
+battery_background_id = 0
+battery_tooltip = 1
+
+# Clock
+time1_format = %a %d %b  %H:%M
+time1_font = Inter Medium 10
+clock_font_color = #e8edf3 100
+clock_padding = 10 0
+clock_background_id = 3
+clock_tooltip = %A, %d %B %Y
+clock_lclick_command = mingo-term -e "mingo-hold cal -3"

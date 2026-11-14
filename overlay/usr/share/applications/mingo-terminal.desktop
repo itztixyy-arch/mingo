@@ -5,3 +5,4 @@ Comment=Open a terminal
 Exec=mingo-term
 Icon=utilities-terminal
 Terminal=false
+StartupWMClass=lxterminal

@@ -39,7 +39,18 @@ if grep -q 'console=ttyS0' /proc/cmdline; then
 fi
 
 stage "bringing up network"
-/usr/bin/mingo-net &
+# system message bus (NetworkManager, Wi-Fi) then NetworkManager; plain DHCP as a fallback
+if command -v dbus-daemon >/dev/null 2>&1; then
+  mkdir -p /run/dbus /var/lib/dbus
+  dbus-uuidgen --ensure 2>/dev/null
+  dbus-daemon --system --fork 2>/dev/null
+fi
+rfkill unblock all 2>/dev/null
+if command -v NetworkManager >/dev/null 2>&1 && [ -S /run/dbus/system_bus_socket ]; then
+  NetworkManager
+else
+  /usr/bin/mingo-net &
+fi
 
 stage "restoring your files"
 /usr/bin/mingo-load

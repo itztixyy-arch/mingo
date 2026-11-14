@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Search
+Comment=Search apps, files and settings (tap Super)
+Exec=mingo-search
+Icon=system-search
+Terminal=false
+NoDisplay=true

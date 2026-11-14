@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Volume icon in the top bar: click = slider, scroll = volume, right-click = sound settings."""
+import subprocess
+
+import gi
+gi.require_version('Gtk', '3.0')
+gi.require_version('Gdk', '3.0')
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+SINK = '@DEFAULT_AUDIO_SINK@'
+
+
+def run(*args):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def get_volume():
+    parts = run('mingo-volume', 'get').split()
+    if len(parts) < 2:
+        return 0, True
+    return int(parts[0]), parts[1] == '1'
+
+
+def icon_for(vol, muted):
+    if muted or vol == 0:
+        return 'audio-volume-muted'
+    return 'audio-volume-low' if vol < 34 else 'audio-volume-medium' if vol < 67 else 'audio-volume-high'
+
+
+class VolumeTray:
+    def __init__(self):
+        self.icon = Gtk.StatusIcon()
+        self.icon.set_title('Volume')
+        self.icon.connect('activate', self.toggle_popup)
+        self.icon.connect('popup-menu', self.show_menu)
+        self.icon.connect('scroll-event', self.on_scroll)
+        self.popup = None
+        self.refresh()
+        GLib.timeout_add_seconds(2, self.refresh)
+
+    def refresh(self):
+        vol, muted = get_volume()
+        self.icon.set_from_icon_name(icon_for(vol, muted))
+        self.icon.set_tooltip_text('Volume: muted' if muted else f'Volume: {vol}%')
+        return True
+
+    def on_scroll(self, _icon, event):
+        if event.direction == Gdk.ScrollDirection.UP:
+            run('mingo-volume', 'up')
+        elif event.direction == Gdk.ScrollDirection.DOWN:
+            run('mingo-volume', 'down')
+        self.refresh()
+
+    def show_menu(self, _icon, button, time):
+        menu = Gtk.Menu()
+        for label, cmd in (('Mute / Unmute', ['mingo-volume', 'mute']),
+                           ('Sound Settings...', ['pavucontrol'])):
+            item = Gtk.MenuItem(label=label)
+            item.connect('activate', lambda _w, c=cmd: subprocess.Popen(c))
+            menu.append(item)
+        menu.show_all()
+        menu.popup(None, None, None, None, button, time)
+
+    def toggle_popup(self, _icon):
+        if self.popup:
+            self.popup.destroy()
+            self.popup = None
+            return
+        vol, muted = get_volume()
+        win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        win.set_decorated(False)
+        win.set_skip_taskbar_hint(True)
+        win.set_keep_above(True)
+        win.set_type_hint(Gdk.WindowTypeHint.POPUP_MENU)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        box.set_border_width(14)
+        mute = Gtk.Button.new_from_icon_name(icon_for(vol, muted), Gtk.IconSize.BUTTON)
+        mute.set_relief(Gtk.ReliefStyle.NONE)
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        scale.set_size_request(220, -1)
+        scale.set_draw_value(True)
+        scale.set_value_pos(Gtk.PositionType.RIGHT)
+        scale.set_value(vol)
+
+        def changed(s):
+            run('wpctl', 'set-mute', SINK, '0')
+            run('wpctl', 'set-volume', SINK, f'{s.get_value() / 100:.2f}')
+            mute.set_image(Gtk.Image.new_from_icon_name(icon_for(int(s.get_value()), False), Gtk.IconSize.BUTTON))
+            self.refresh()
+
+        def toggle_mute(_b):
+            run('mingo-volume', 'mute')
+            v, m = get_volume()
+            mute.set_image(Gtk.Image.new_from_icon_name(icon_for(v, m), Gtk.IconSize.BUTTON))
+            self.refresh()
+
+        scale.connect('value-changed', changed)
+        mute.connect('clicked', toggle_mute)
+        box.pack_start(mute, False, False, 0)
+        box.pack_start(scale, True, True, 0)
+        win.add(box)
+
+        ok, _screen, area, _orient = self.icon.get_geometry()
+        win.show_all()
+        if ok:
+            w, _h = win.get_size()
+            mon = Gdk.Display.get_default().get_monitor_at_point(area.x, area.y).get_geometry()
+            x = max(mon.x + 8, min(area.x + area.width // 2 - w // 2, mon.x + mon.width - w - 8))
+            win.move(x, area.y + area.height + 6)
+
+        def close(*_a):
+            if self.popup:
+                self.popup.destroy()
+                self.popup = None
+        win.connect('focus-out-event', close)
+        win.connect('key-press-event', lambda _w, e: close() if e.keyval == Gdk.KEY_Escape else None)
+        win.present()
+        self.popup = win
+
+
+if __name__ == '__main__':
+    VolumeTray()
+    Gtk.main()

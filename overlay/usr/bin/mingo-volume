@@ -1,0 +1,19 @@
+#!/bin/sh
+# mingo-volume up|down|mute|get   (volume keys, tray icon)
+S=@DEFAULT_AUDIO_SINK@
+case "$1" in
+  up)   wpctl set-mute $S 0; wpctl set-volume -l 1.0 $S 5%+ ;;
+  down) wpctl set-volume $S 5%- ;;
+  mute) wpctl set-mute $S toggle ;;
+  get)  ;;
+  *) echo "usage: mingo-volume up|down|mute|get" >&2; exit 1 ;;
+esac
+v=$(wpctl get-volume $S 2>/dev/null)
+pct=$(echo "$v" | awk '{ printf "%d", $2 * 100 + 0.5 }')
+case "$v" in *MUTED*) muted=1 ;; *) muted=0 ;; esac
+[ "$1" = get ] && { echo "$pct $muted"; exit 0; }
+if [ $muted = 1 ]; then icon=audio-volume-muted; txt=Muted
+elif [ "${pct:-0}" -lt 34 ]; then icon=audio-volume-low; txt="$pct%"
+elif [ "$pct" -lt 67 ]; then icon=audio-volume-medium; txt="$pct%"
+else icon=audio-volume-high; txt="$pct%"; fi
+notify-send -a mingo-volume -i $icon -h string:x-dunst-stack-tag:volume -h int:value:"${pct:-0}" "Volume" "$txt" 2>/dev/null

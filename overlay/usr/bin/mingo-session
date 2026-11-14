@@ -1,12 +1,24 @@
 #!/bin/sh
 # Desktop session (started by ~/.xinitrc inside a D-Bus session)
-picom -b 2>/dev/null
+export GTK_THEME=adw-gtk3-dark
+picom -b 2>/dev/null                                 # shadows, rounded corners, animations
 if command -v pcmanfm >/dev/null 2>&1; then
-  pcmanfm --desktop &                     # wallpaper + desktop icons from ~/Desktop
+  pcmanfm --desktop &                                # wallpaper + desktop icons from ~/Desktop
 else
   feh --no-fehbg --bg-fill /usr/share/mingo/wallpaper.png
 fi
-tint2 &
+# sound (PipeWire)
+if command -v pipewire >/dev/null 2>&1; then
+  pipewire & sleep 0.3
+  wireplumber &
+  pipewire-pulse &
+fi
+dunst &                                              # notifications
+tint2 &                                              # top bar
+mingo-dock &                                         # dock
+mingo-superkey &                                     # tap Super = search
+(sleep 2; mingo-tray) &                              # volume icon
+(sleep 2; command -v nm-applet >/dev/null && nm-applet) &   # Wi-Fi icon
 (sleep 1; conky -d) &
-(sleep 45; mingo-update-notify) &       # offer new GitHub releases
+(sleep 45; mingo-update-notify) &                    # offer new GitHub releases
 exec openbox

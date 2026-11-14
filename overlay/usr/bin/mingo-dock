@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+"""Mingo dock.
+
+Pinned apps plus every open app, a line under apps that have a window open, smooth
+magnification on hover, bounce while an app starts. Right-click an icon to keep it in the
+dock or remove it. Pinned apps are stored in ~/.config/mingo/dock.list (one .desktop id per
+line), so they are saved to the USB with everything else.
+"""
+import math
+import os
+import time
+
+import cairo
+import gi
+gi.require_version('Gtk', '3.0')
+gi.require_version('Gdk', '3.0')
+gi.require_version('GdkX11', '3.0')
+gi.require_version('Wnck', '3.0')
+gi.require_foreign('cairo')
+from gi.repository import Gdk, GdkX11, Gio, GLib, Gtk, Wnck  # noqa: E402
+
+PIN_FILE = os.path.expanduser('~/.config/mingo/dock.list')
+DEFAULT_PINS = ['mingo-files.desktop', 'mingo-terminal.desktop', 'mingo-browser.desktop',
+                'mingo-editor.desktop', 'mingo-monitor.desktop', 'mingo-settings.desktop']
+BASE = 48          # icon size at rest
+MAXS = 78          # icon size right under the pointer
+GAP = 10           # space between icons
+PAD = 10           # padding inside the dock bar
+MARGIN = 10        # space under the dock
+SIGMA = 75.0       # width of the magnification wave (px)
+BAR_H = BASE + 2 * PAD
+WIN_H = MAXS + PAD + MARGIN + 50   # room for magnified icons and the name label
+SEP_W = 14
+
+
+def strut(xid, bottom, x0, x1):
+    """Reserve the dock area so maximized windows stop above it."""
+    try:
+        from Xlib import Xatom
+        from Xlib import display as xdisplay
+        d = xdisplay.Display()
+        w = d.create_resource_object('window', xid)
+        w.change_property(d.intern_atom('_NET_WM_STRUT_PARTIAL'), Xatom.CARDINAL, 32,
+                          [0, 0, 0, bottom, 0, 0, 0, 0, 0, 0, x0, x1])
+        w.change_property(d.intern_atom('_NET_WM_STRUT'), Xatom.CARDINAL, 32, [0, 0, 0, bottom])
+        d.flush()
+        d.close()
+    except Exception:  # noqa: BLE001  - dock still works without the reservation
+        pass
+
+
+class Item:
+    def __init__(self, app_id=None, info=None, window=None):
+        self.app_id = app_id
+        self.info = info
+        self.windows = []
+        self.fallback_window = window
+        self.size = float(BASE)
+        self.target = float(BASE)
+        self.x = 0.0
+        self.bounce_until = 0.0
+        self.pixbuf = None
+        self.keys = set()
+        if info:
+            for v in (info.get_startup_wm_class(), os.path.basename((info.get_executable() or '')),
+                      app_id[:-8] if app_id and app_id.endswith('.desktop') else app_id):
+                if v:
+                    self.keys.add(v.lower())
+
+    @property
+    def name(self):
+        if self.info:
+            return self.info.get_display_name()
+        if self.fallback_window:
+            return self.fallback_window.get_class_group_name() or self.fallback_window.get_name()
+        return ''
+
+    def load_icon(self, theme):
+        size = 128
+        pix = None
+        if self.info and self.info.get_icon():
+            ii = theme.lookup_by_gicon(self.info.get_icon(), size, Gtk.IconLookupFlags.FORCE_SIZE)
+            if ii:
+                try:
+                    pix = ii.load_icon()
+                except GLib.Error:
+                    pix = None
+        if pix is None and self.windows:
+            pix = self.windows[0].get_icon()
+        if pix is None:
+            try:
+                pix = theme.load_icon('application-x-executable', size, Gtk.IconLookupFlags.FORCE_SIZE)
+            except GLib.Error:
+                pix = None
+        self.pixbuf = pix
+
+
+class Dock(Gtk.Window):
+    def __init__(self):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.set_title('mingo-dock')
+        self.set_wmclass('mingo-dock', 'Mingo-dock')
+        self.set_type_hint(Gdk.WindowTypeHint.DOCK)
+        self.set_decorated(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_keep_above(True)
+        self.stick()
+        self.set_app_paintable(True)
+        visual = self.get_screen().get_rgba_visual()
+        if visual:
+            self.set_visual(visual)
+        self.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK
+                        | Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK)
+        self.connect('draw', self.on_draw)
+        self.connect('motion-notify-event', self.on_motion)
+        self.connect('leave-notify-event', self.on_leave)
+        self.connect('button-press-event', self.on_click)
+
+        self.theme = Gtk.IconTheme.get_default()
+        self.theme.connect('changed', lambda *_: self.rebuild())
+        self.mouse_x = None
+        self.hover = None
+        self.items = []
+        self.sep_after = -1
+        self.animating = False
+        self.bar = (0, 0, 0, 0)
+        self.region = None
+
+        self.screen = Wnck.Screen.get_default()
+        self.screen.force_update()
+        for sig in ('window-opened', 'window-closed', 'active-window-changed'):
+            self.screen.connect(sig, lambda *_: self.rebuild())
+        Gdk.Screen.get_default().connect('size-changed', lambda *_: self.place())
+        Gdk.Screen.get_default().connect('monitors-changed', lambda *_: self.place())
+
+        os.makedirs(os.path.dirname(PIN_FILE), exist_ok=True)
+        if not os.path.exists(PIN_FILE):
+            self.save_pins(DEFAULT_PINS)
+        self.monitor = Gio.File.new_for_path(PIN_FILE).monitor_file(Gio.FileMonitorFlags.NONE, None)
+        self.monitor.connect('changed', lambda *_: GLib.timeout_add(150, self.rebuild_once))
+
+        self.place()
+        self.rebuild()
+        self.show_all()
+        GLib.timeout_add(300, self.place)
+
+    # ---- pins -------------------------------------------------------------------------------
+    def load_pins(self):
+        try:
+            with open(PIN_FILE) as f:
+                return [ln.strip() for ln in f if ln.strip() and not ln.startswith('#')]
+        except OSError:
+            return list(DEFAULT_PINS)
+
+    def save_pins(self, pins):
+        with open(PIN_FILE, 'w') as f:
+            f.write('\n'.join(pins) + '\n')
+
+    def set_pinned(self, item, pinned):
+        pins = self.load_pins()
+        if pinned and item.app_id not in pins:
+            pins.append(item.app_id)
+        if not pinned:
+            pins = [p for p in pins if p != item.app_id]
+        self.save_pins(pins)
+        self.rebuild()
+
+    # ---- model ------------------------------------------------------------------------------
+    def rebuild_once(self):
+        self.rebuild()
+        return False
+
+    def find_app(self, window):
+        keys = {(window.get_class_group_name() or '').lower(), (window.get_class_instance_name() or '').lower()}
+        keys.discard('')
+        for app in Gio.AppInfo.get_all():
+            if not isinstance(app, Gio.DesktopAppInfo):
+                continue
+            cand = {(app.get_startup_wm_class() or '').lower(), os.path.basename(app.get_executable() or '').lower()}
+            if keys & cand:
+                return app
+        return None
+
+    def rebuild(self):
+        old = {(it.app_id or id(it.fallback_window)): it for it in self.items}
+        items = []
+        for app_id in self.load_pins():
+            info = Gio.DesktopAppInfo.new(app_id) if app_id.endswith('.desktop') else None
+            if info:
+                items.append(old.get(app_id) or Item(app_id, info))
+        for it in items:
+            it.windows = []
+        pinned_count = len(items)
+        for w in self.screen.get_windows_stacked():
+            if w.is_skip_tasklist() or w.get_window_type() not in (Wnck.WindowType.NORMAL, Wnck.WindowType.DIALOG):
+                continue
+            keys = {(w.get_class_group_name() or '').lower(), (w.get_class_instance_name() or '').lower()}
+            keys.discard('')
+            if 'mingo-dock' in keys:
+                continue
+            owner = next((it for it in items if it.keys & keys), None)
+            if owner is None:
+                info = self.find_app(w)
+                app_id = info.get_id() if info else None
+                owner = next((it for it in items if app_id and it.app_id == app_id), None)
+                if owner is None:
+                    key = app_id or id(w)
+                    owner = old.get(key) or Item(app_id, info, w)
+                    owner.windows = []
+                    owner.keys |= keys
+                    items.append(owner)
+            owner.windows.append(w)
+        for it in items:
+            if it.windows:
+                it.bounce_until = 0
+            if it.pixbuf is None:
+                it.load_icon(self.theme)
+        self.items = items
+        self.sep_after = pinned_count - 1 if 0 < pinned_count < len(items) else -1
+        self.place()
+        self.queue_draw()
+        return False
+
+    # ---- geometry ---------------------------------------------------------------------------
+    def monitor_geometry(self):
+        display = Gdk.Display.get_default()
+        mon = display.get_primary_monitor() or display.get_monitor(0)
+        return mon.get_geometry()
+
+    def place(self):
+        g = self.monitor_geometry()
+        self.resize(g.width, WIN_H)
+        self.move(g.x, g.y + g.height - WIN_H)
+        gw = self.get_window()
+        if gw:
+            base_w = self.base_width()
+            x0 = g.x + (g.width - base_w) // 2
+            strut(GdkX11.X11Window.get_xid(gw), BAR_H + MARGIN, x0, x0 + base_w)
+        return False
+
+    def base_width(self):
+        n = len(self.items)
+        return int(n * BASE + max(0, n - 1) * GAP + 2 * PAD + (SEP_W if self.sep_after >= 0 else 0))
+
+    def layout(self, sizes):
+        width = self.get_allocated_width()
+        total = sum(sizes) + max(0, len(sizes) - 1) * GAP + 2 * PAD + (SEP_W if self.sep_after >= 0 else 0)
+        x = (width - total) / 2 + PAD
+        xs = []
+        for i, s in enumerate(sizes):
+            xs.append(x)
+            x += s + GAP
+            if i == self.sep_after:
+                x += SEP_W
+        return xs, total
+
+    def targets(self):
+        sizes = [BASE] * len(self.items)
+        if self.mouse_x is None:
+            return sizes
+        xs, _ = self.layout(sizes)
+        out = []
+        for x in xs:
+            d = (x + BASE / 2) - self.mouse_x
+            out.append(BASE + (MAXS - BASE) * math.exp(-(d * d) / (2 * SIGMA * SIGMA)))
+        return out
+
+    def step(self):
+        targets = self.targets()
+        moving = False
+        now = time.monotonic()
+        for it, t in zip(self.items, targets):
+            it.size += (t - it.size) * 0.28
+            if abs(t - it.size) > 0.3:
+                moving = True
+            else:
+                it.size = t
+            if it.bounce_until > now:
+                moving = True
+        self.queue_draw()
+        if not moving:
+            self.animating = False
+        return moving
+
+    def animate(self):
+        if not self.animating:
+            self.animating = True
+            GLib.timeout_add(16, self.step)
+
+    # ---- drawing ----------------------------------------------------------------------------
+    @staticmethod
+    def rounded(cr, x, y, w, h, r):
+        cr.new_sub_path()
+        cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+        cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        if not self.items:
+            return False
+        height = self.get_allocated_height()
+        sizes = [it.size for it in self.items]
+        xs, total = self.layout(sizes)
+        bar_x = xs[0] - PAD
+        bar_y = height - MARGIN - BAR_H
+        # dock bar: frosted dark glass with a hairline border
+        self.rounded(cr, bar_x, bar_y, total, BAR_H, 20)
+        grad = cairo.LinearGradient(0, bar_y, 0, bar_y + BAR_H)
+        grad.add_color_stop_rgba(0, 0.16, 0.18, 0.23, 0.78)
+        grad.add_color_stop_rgba(1, 0.09, 0.10, 0.13, 0.84)
+        cr.set_source(grad)
+        cr.fill_preserve()
+        cr.set_source_rgba(1, 1, 1, 0.14)
+        cr.set_line_width(1)
+        cr.stroke()
+
+        now = time.monotonic()
+        active = self.screen.get_active_window()
+        for i, (it, x) in enumerate(zip(self.items, xs)):
+            s = it.size
+            lift = 0.0
+            if it.bounce_until > now:
+                phase = (it.bounce_until - now) * 2 * math.pi / 0.6
+                lift = abs(math.sin(phase)) * 16
+            y = bar_y + BAR_H - PAD - s - lift
+            if it.pixbuf:
+                cr.save()
+                cr.translate(x, y)
+                k = s / it.pixbuf.get_width()
+                cr.scale(k, k)
+                Gdk.cairo_set_source_pixbuf(cr, it.pixbuf, 0, 0)
+                cr.get_source().set_filter(cairo.FILTER_GOOD)
+                cr.paint()
+                cr.restore()
+            if it.windows:   # running: a line under the icon (wider and blue for the active app)
+                is_active = active is not None and active in it.windows
+                lw = 22 if is_active else 12
+                self.rounded(cr, x + s / 2 - lw / 2, bar_y + BAR_H - 6, lw, 3, 1.5)
+                if is_active:
+                    cr.set_source_rgba(0.35, 0.66, 0.90, 1)
+                else:
+                    cr.set_source_rgba(1, 1, 1, 0.75)
+                cr.fill()
+            if i == self.sep_after:
+                sx = x + s + GAP / 2 + SEP_W / 2
+                cr.set_source_rgba(1, 1, 1, 0.18)
+                cr.rectangle(sx - 0.5, bar_y + 12, 1, BAR_H - 24)
+                cr.fill()
+
+        if self.hover is not None and self.hover < len(self.items):
+            it, x = self.items[self.hover], xs[self.hover]
+            self.draw_label(cr, it.name, x + it.size / 2, bar_y + BAR_H - PAD - it.size - 10)
+
+        self.bar = (bar_x, bar_y, total, BAR_H)
+        top = bar_y - (max(sizes) - BASE)
+        region = (int(bar_x), int(top), int(total) + 1, int(bar_y + BAR_H - top) + 1)
+        if region != self.region and self.get_window():
+            self.region = region
+            self.get_window().input_shape_combine_region(cairo.Region(cairo.RectangleInt(*region)), 0, 0)
+        return False
+
+    def draw_label(self, cr, text, cx, bottom):
+        if not text:
+            return
+        layout = self.create_pango_layout(text)
+        from gi.repository import Pango
+        layout.set_font_description(Pango.FontDescription('Inter, DejaVu Sans 10'))
+        tw, th = layout.get_pixel_size()
+        w, h = tw + 20, th + 10
+        x, y = cx - w / 2, bottom - h
+        self.rounded(cr, x, y, w, h, h / 2)
+        cr.set_source_rgba(0.10, 0.11, 0.14, 0.92)
+        cr.fill_preserve()
+        cr.set_source_rgba(1, 1, 1, 0.12)
+        cr.set_line_width(1)
+        cr.stroke()
+        cr.move_to(x + 10, y + 5)
+        cr.set_source_rgba(1, 1, 1, 0.95)
+        from gi.repository import PangoCairo
+        PangoCairo.show_layout(cr, layout)
+
+    # ---- input ------------------------------------------------------------------------------
+    def item_at(self, x, y):
+        xs, _ = self.layout([it.size for it in self.items])
+        bx, by, bw, bh = self.bar
+        if not (bx <= x <= bx + bw) or y < by - (MAXS - BASE) - 4:
+            return None
+        for i, (it, ix) in enumerate(zip(self.items, xs)):
+            if ix - GAP / 2 <= x <= ix + it.size + GAP / 2:
+                return i
+        return None
+
+    def on_motion(self, _w, ev):
+        bx, by, bw, _bh = self.bar
+        inside = bx - 20 <= ev.x <= bx + bw + 20 and ev.y >= by - (MAXS - BASE) - 6
+        self.mouse_x = ev.x if inside else None
+        self.hover = self.item_at(ev.x, ev.y) if inside else None
+        self.animate()
+
+    def on_leave(self, *_a):
+        self.mouse_x = None
+        self.hover = None
+        self.animate()
+
+    def launch(self, it):
+        if not it.info:
+            return
+        ctx = Gdk.Display.get_default().get_app_launch_context()
+        try:
+            it.info.launch([], ctx)
+        except GLib.Error:
+            return
+        it.bounce_until = time.monotonic() + 1.8
+        self.animate()
+
+    def on_click(self, _w, ev):
+        i = self.item_at(ev.x, ev.y)
+        if i is None:
+            return False
+        it = self.items[i]
+        ts = ev.time
+        if ev.button == 1:
+            if not it.windows:
+                self.launch(it)
+            else:
+                active = self.screen.get_active_window()
+                if active in it.windows and not active.is_minimized():
+                    for w in it.windows:
+                        w.minimize()
+                else:
+                    for w in it.windows:
+                        if w.is_minimized():
+                            w.unminimize(ts)
+                    it.windows[-1].activate(ts)
+        elif ev.button == 2:
+            self.launch(it)
+        elif ev.button == 3:
+            self.menu(it, ev)
+        return True
+
+    def menu(self, it, ev):
+        menu = Gtk.Menu()
+        if it.info:
+            item = Gtk.MenuItem(label='New Window' if it.windows else 'Open')
+            item.connect('activate', lambda *_: self.launch(it))
+            menu.append(item)
+        if it.app_id:
+            pinned = it.app_id in self.load_pins()
+            item = Gtk.MenuItem(label='Remove from Dock' if pinned else 'Keep in Dock')
+            item.connect('activate', lambda *_: self.set_pinned(it, not pinned))
+            menu.append(item)
+        if it.windows:
+            menu.append(Gtk.SeparatorMenuItem())
+            item = Gtk.MenuItem(label='Quit' if len(it.windows) == 1 else f'Quit ({len(it.windows)} windows)')
+            item.connect('activate', lambda *_: [w.close(Gtk.get_current_event_time()) for w in list(it.windows)])
+            menu.append(item)
+        menu.show_all()
+        menu.popup_at_pointer(ev)
+
+
+if __name__ == '__main__':
+    Wnck.set_client_type(Wnck.ClientType.PAGER)
+    Dock()
+    Gtk.main()

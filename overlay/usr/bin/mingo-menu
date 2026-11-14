@@ -1,0 +1,25 @@
+#!/bin/sh
+# Mingo menu (logo at the top-left of the top bar)
+pkill -x rofi && exit 0
+c=$(printf '%s\0icon\037%s\n' \
+  "About Mingo" help-about \
+  "Settings" preferences-system \
+  "Check for Updates" system-software-update \
+  "Save Changes Now" document-save \
+  "Files" system-file-manager \
+  "Terminal" utilities-terminal \
+  "Restart" system-reboot \
+  "Shut Down" system-shutdown \
+  "Exit Desktop" system-log-out \
+  | rofi -dmenu -i -show-icons -no-custom -theme "$HOME/.config/rofi/menu.rasi" -p '')
+case "$c" in
+  "About Mingo") mingo-term -e "mingo-hold fastfetch" ;;
+  "Settings") mingo-settings ;;
+  "Check for Updates") mingo-term -e "mingo-hold mingo-update" ;;
+  "Save Changes Now") mingo-term -e "mingo-hold mingo-save" ;;
+  "Files") pcmanfm "$HOME" ;;
+  "Terminal") mingo-term ;;
+  "Restart") reboot ;;
+  "Shut Down") shutdown ;;
+  "Exit Desktop") openbox --exit ;;
+esac

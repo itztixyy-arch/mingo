@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Build the Mingo bootable USB image. Run as root inside WSL Ubuntu:
 #   wsl -d Ubuntu -u root -- bash /mnt/d/PythonAndStuff/Minigo/build.sh
-# Output: out/mingo.img (BIOS + UEFI). Flash it to a USB stick (2 GB or larger).
+# Output: out/mingo.iso, a hybrid ISO (BIOS + UEFI). Flash it in DD mode (Rufus "DD Image",
+# balenaEtcher) to a USB stick (4 GB or larger).
 #
-# Layout on the stick (FAT32, readable from Windows):
-#   boot/             kernel, small initramfs, syslinux
+# The ISO holds only the GRUB boot loaders. Appended to it is partition 2, a FAT32 partition
+# "MINGO" (readable and writable from Windows) that holds everything else:
+#   boot/             kernel, small initramfs
 #   EFI/BOOT/         UEFI loader
 #   mingo/system.sfs  the whole OS, compressed (mounted read-only under a RAM overlay)
 #   mingo/current-version.txt, mingo/full-version.txt, mingo/changes/changes-N.mingo
@@ -27,7 +29,13 @@ PKGS="kmod bash bash-completion nano less htop mc tmux curl wget openssh-client 
   eudev xorg-server xinit xf86-input-libinput xf86-video-fbdev xf86-video-vesa mesa-dri-gallium
   dbus dbus-x11 font-dejavu papirus-icon-theme yad
   openbox tint2 picom conky feh dmenu scrot xdotool lxterminal pcmanfm mousepad firefox-esr
-  xterm xdpyinfo xrdb xsetroot xset setxkbmap"
+  xterm xdpyinfo xrdb xsetroot xset setxkbmap xdg-utils
+  font-inter adw-gtk3 rofi dunst libnotify python3 py3-gobject3 py3-cairo py3-xlib libwnck3 gtk+3.0
+  networkmanager networkmanager-wifi networkmanager-tui network-manager-applet wpa_supplicant
+  pipewire wireplumber pipewire-pulse pipewire-alsa alsa-utils alsa-ucm-conf pavucontrol sof-firmware
+  linux-firmware-intel linux-firmware-i915 linux-firmware-rtw88 linux-firmware-rtw89 linux-firmware-rtlwifi
+  linux-firmware-ath10k linux-firmware-ath11k linux-firmware-mediatek linux-firmware-brcm
+  linux-firmware-cypress linux-firmware-other"
 
 # storage + filesystem drivers the initramfs needs to find and mount the stick
 INITRD_MODS="xhci_pci xhci_hcd ehci_pci ehci_hcd ohci_pci ohci_hcd uhci_hcd usb_storage uas
@@ -37,7 +45,7 @@ INITRD_MODS="xhci_pci xhci_hcd ehci_pci ehci_hcd ohci_pci ohci_hcd uhci_hcd usb_
 
 apt-get update -qq
 apt-get install -y -qq curl cpio gzip zstd binutils kmod fdisk dosfstools mtools squashfs-tools python3 \
-  syslinux syslinux-common grub-common grub-efi-amd64-bin imagemagick fonts-dejavu-core
+  xorriso grub-common grub-pc-bin grub-efi-amd64-bin imagemagick fonts-dejavu-core
 
 rm -rf "$W"; mkdir -p "$W/root" "$W/k" "$W/initrd" "$OUT"; cd "$W"
 
@@ -60,6 +68,7 @@ if ! chroot root /sbin/apk add --no-cache $PKGS; then
 fi
 chroot root udevadm hwdb --update 2>/dev/null || true
 rm -rf root/var/cache/apk/* root/usr/share/man root/usr/share/doc root/usr/share/info root/usr/share/gtk-doc
+rm -rf root/lib/firmware/intel/ipu* root/lib/firmware/intel/vpu   # camera/AI firmware: large, not needed
 rm -f root/dev/null root/dev/zero root/dev/random root/dev/urandom
 rm -f root/etc/resolv.conf; ln -s /run/resolv.conf root/etc/resolv.conf   # keeps DHCP DNS out of saved changes
 
@@ -70,9 +79,8 @@ tar -xzf k.apk -C k 2>/dev/null || true
 [ -f k/boot/vmlinuz-lts ] || { echo "kernel extract failed"; exit 1; }
 KVER=$(ls k/lib/modules)
 M=k/lib/modules/$KVER
-# trim size: no sound/media/wifi/staging/big GPU drivers (display uses efifb/vesa/simpledrm)
-rm -rf $M/kernel/sound $M/kernel/drivers/media $M/kernel/drivers/infiniband \
-  $M/kernel/drivers/staging $M/kernel/net/wireless $M/kernel/drivers/net/wireless \
+# trim size: no TV/camera, InfiniBand or big AMD/NVIDIA GPU drivers (display uses i915/efifb/vesa)
+rm -rf $M/kernel/drivers/media $M/kernel/drivers/infiniband \
   $M/kernel/drivers/gpu/drm/amd $M/kernel/drivers/gpu/drm/nouveau $M/kernel/drivers/gpu/drm/radeon
 mkdir -p root/lib && cp -a k/lib/modules root/lib/
 chroot root depmod -a "$KVER"          # Alpine's kmod (handles compressed modules)
@@ -97,6 +105,10 @@ echo "UTC" > root/etc/timezone
 for a in reboot poweroff halt; do ln -sf ../bin/busybox "root/sbin/$a"; done
 echo "== desktop assets"
 bash "$SRC/mkdesktop.sh" root
+# hide duplicate launchers (Mingo has its own Terminal entry)
+for d in xterm uxterm lxterminal; do
+  f=root/usr/share/applications/$d.desktop; [ -f "$f" ] && echo "NoDisplay=true" >> "$f"
+done
 for f in usr/bin/firefox-esr usr/bin/pcmanfm usr/bin/lxterminal usr/bin/mousepad usr/bin/startx usr/bin/openbox \
          usr/share/applications/firefox-esr.desktop usr/share/applications/org.xfce.mousepad.desktop \
          usr/share/applications/pcmanfm.desktop usr/share/applications/feh.desktop; do
@@ -160,57 +172,52 @@ mksquashfs root system.sfs -comp $COMP -noappend -all-root -quiet
 SFS_MB=$(( $(stat -c %s system.sfs) / 1048576 + 1 ))
 echo "  system.sfs: ${SFS_MB} MB"
 
-echo "== boot configs"
-cat > syslinux.cfg <<'EOF'
-DEFAULT mingo
-PROMPT 0
-TIMEOUT 0
-NOESCAPE 0
-# hold Shift while booting to get a boot: prompt and type one of these labels
-LABEL mingo
-  KERNEL /boot/vmlinuz
-  INITRD /boot/initramfs.gz
-  APPEND quiet loglevel=3 vt.global_cursor_default=0
-LABEL toram
-  KERNEL /boot/vmlinuz
-  INITRD /boot/initramfs.gz
-  APPEND quiet loglevel=3 vt.global_cursor_default=0 toram
-LABEL safe
-  KERNEL /boot/vmlinuz
-  INITRD /boot/initramfs.gz
-  APPEND nomodeset nosplash
-EOF
+echo "== boot loader (GRUB, BIOS + UEFI)"
 cat > grub.cfg <<'EOF'
 set timeout=0
 set timeout_style=hidden
+insmod all_video
 search --no-floppy --file --set=root /mingo/system.sfs
 linux /boot/vmlinuz quiet loglevel=3 vt.global_cursor_default=0
 initrd /boot/initramfs.gz
 boot
 EOF
-grub-mkstandalone -O x86_64-efi -o BOOTX64.EFI \
-  --modules="part_msdos part_gpt fat search search_fs_file normal linux echo" \
-  "boot/grub/grub.cfg=grub.cfg"
+GRUB_MODS="part_msdos part_gpt fat iso9660 search search_fs_file normal linux echo configfile all_video"
+grub-mkstandalone -O x86_64-efi -o BOOTX64.EFI --modules="$GRUB_MODS" "boot/grub/grub.cfg=grub.cfg"
+# BIOS: small core image with the config built in (a standalone image is too big for El Torito)
+grep -v -e '^insmod all_video' -e timeout grub.cfg > grub-bios.cfg
+grub-mkimage -O i386-pc-eltorito -o bios.img -p /boot/grub -c grub-bios.cfg   biosdisk part_msdos part_gpt fat iso9660 search search_fs_file linux normal echo
 
-IMG_MB=$(( SFS_MB + 64 + FREE_MB ))
-echo "== disk image ($IMG_MB MB)"
-IMG="$OUT/mingo.img"; OFF=$((2048*512))
-rm -f "$IMG"; truncate -s ${IMG_MB}M "$IMG"
-printf 'label: dos\nstart=2048, type=c, bootable\n' | sfdisk -q "$IMG"
-mkfs.vfat -F 32 -n MINGO --offset 2048 "$IMG" $(( (IMG_MB*2048 - 2048) / 2 )) >/dev/null
-mmd   -i "$IMG@@$OFF" ::/boot ::/boot/syslinux ::/EFI ::/EFI/BOOT ::/mingo ::/mingo/changes
-syslinux --offset $OFF --directory /boot/syslinux --install "$IMG"
-dd if=/usr/lib/syslinux/mbr/mbr.bin of="$IMG" bs=440 count=1 conv=notrunc status=none
-mcopy -i "$IMG@@$OFF" vmlinuz initramfs.gz ::/boot/
-mcopy -i "$IMG@@$OFF" syslinux.cfg ::/boot/syslinux/syslinux.cfg
-mcopy -i "$IMG@@$OFF" BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
-mcopy -i "$IMG@@$OFF" system.sfs ::/mingo/system.sfs
+DATA_MB=$(( SFS_MB + 64 + FREE_MB ))
+echo "== MINGO data partition ($DATA_MB MB)"
+rm -f data.img; truncate -s ${DATA_MB}M data.img
+mkfs.vfat -F 32 -n MINGO data.img >/dev/null
+mmd   -i data.img ::/boot ::/EFI ::/EFI/BOOT ::/mingo ::/mingo/changes
+mcopy -i data.img vmlinuz initramfs.gz ::/boot/
+mcopy -i data.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
+mcopy -i data.img system.sfs ::/mingo/system.sfs
 echo 0 > current-version.txt
-mcopy -i "$IMG@@$OFF" current-version.txt ::/mingo/current-version.txt
-mcopy -i "$IMG@@$OFF" current-version.txt ::/mingo/full-version.txt
+mcopy -i data.img current-version.txt ::/mingo/current-version.txt
+mcopy -i data.img current-version.txt ::/mingo/full-version.txt
+
+echo "== hybrid ISO"
+rm -rf isoroot; mkdir -p isoroot/boot/grub
+cp bios.img isoroot/boot/grub/bios.img
+truncate -s $(( $(stat -c %s BOOTX64.EFI) / 1048576 + 3 ))M isoroot/boot/grub/efi.img && mkfs.vfat -n MINGO_EFI isoroot/boot/grub/efi.img >/dev/null
+mmd -i isoroot/boot/grub/efi.img ::/EFI ::/EFI/BOOT
+mcopy -i isoroot/boot/grub/efi.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
+printf 'Mingo %s\r\nFlash this ISO to a USB stick in DD mode (Rufus: "DD Image", or balenaEtcher).\r\nYour files are saved on the stick partition named MINGO.\r\n' "$VERSION" > isoroot/README.TXT
+ISO="$OUT/mingo.iso"
+rm -f "$ISO" "$OUT/mingo.img"
+xorriso -as mkisofs -o "$ISO" -V MINGO_BOOT -R -J -quiet \
+  --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img -partition_offset 16 --mbr-force-bootable \
+  -b boot/grub/bios.img -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
+  -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot \
+  -append_partition 2 0x0c data.img \
+  isoroot
 # release files (what mingo-update downloads)
 mkdir -p "$OUT/release" && rm -f "$OUT/release/"*
 cp vmlinuz initramfs.gz system.sfs "$OUT/release/"
 (cd "$OUT/release" && sha256sum vmlinuz initramfs.gz system.sfs > SHA256SUMS)
-mdir -i "$IMG@@$OFF" -/ ::
-echo "DONE: $IMG (Mingo $VERSION)"
+fdisk -l "$ISO" | tail -3
+echo "DONE: $ISO ($(( $(stat -c %s "$ISO") / 1048576 )) MB, Mingo $VERSION)"

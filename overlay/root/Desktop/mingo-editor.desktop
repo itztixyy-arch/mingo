@@ -5,3 +5,4 @@ Comment=Edit text files
 Exec=mousepad
 Icon=accessories-text-editor
 Terminal=false
+StartupWMClass=mousepad

@@ -5,3 +5,4 @@ Comment=Terminal size, keyboard, time zone, saving
 Exec=mingo-settings
 Icon=preferences-system
 Terminal=false
+StartupWMClass=yad
